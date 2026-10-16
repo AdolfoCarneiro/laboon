@@ -7,4 +7,6 @@ TimeoutStartSec=3h
 Nice=19
 IOSchedulingClass=idle
 CPUSchedulingPolicy=idle
+# o libx264 em 1080p segura frames em memória; sem teto passava de 1 GB
+MemoryHigh=600M
 ExecStart=%h/.local/bin/screensaver-ascii --video %h/.local/share/screensaver-ascii/bloqueio.mp4 --minutos 25

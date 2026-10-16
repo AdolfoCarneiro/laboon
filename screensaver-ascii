@@ -6117,7 +6117,8 @@ def gerar_video(saida, minutos=25.0, fps=30):
     parcial = saida + ".parcial.mp4"
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "1920x1080",
                            "-r", str(fps), "-i", "-", "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "26",
-                           "-tune", "animation", "-pix_fmt", "yuv420p", "-movflags", "+faststart", parcial],
+                           "-tune", "animation", "-threads", "2", "-rc-lookahead", "10",
+                           "-pix_fmt", "yuv420p", "-movflags", "+faststart", parcial],
                           stdin=subprocess.PIPE)
 
     def perfil_de(cena):
