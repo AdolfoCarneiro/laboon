@@ -6063,19 +6063,30 @@ class Rasterizador:
     def quadro(self, ch, co, w, h, perfil):
         return self.imagem(ch, co, w, h, perfil).tobytes()
 
-    def parede(self):
-        """Wallpaper atual (o que a tela de bloqueio usava), cortado pra preencher 1920x1080."""
+    def parede(self, fps=30):
+        """Papel de parede atual (o da ilha; sem ele, o antigo do KDE), cortado pra preencher 1920x1080."""
+        caminho = os.path.realpath(os.path.expanduser("~/.local/state/lumxx/current/background"))
+        if not os.path.isfile(caminho):
+            try:
+                r = subprocess.run(["kreadconfig6", "--file", "kscreenlockerrc", "--group", "Greeter", "--group", "Wallpaper",
+                                    "--group", "org.kde.image", "--group", "General", "--key", "Image"],
+                                   capture_output=True, text=True, timeout=5)
+                caminho = r.stdout.strip().removeprefix("file://")
+            except Exception:
+                return None
+        if caminho.lower().endswith((".mp4", ".webm", ".mkv", ".mov")):
+            try:
+                return ParedeVideo(caminho, self.L, self.A, fps, self.Image)
+            except Exception:
+                return None
         try:
-            r = subprocess.run(["kreadconfig6", "--file", "kscreenlockerrc", "--group", "Greeter", "--group", "Wallpaper",
-                                "--group", "org.kde.image", "--group", "General", "--key", "Image"],
-                               capture_output=True, text=True, timeout=5)
-            im = self.Image.open(r.stdout.strip().removeprefix("file://")).convert("RGB")
+            im = self.Image.open(caminho).convert("RGB")
         except Exception:
             return None
         esc = max(self.L / im.width, self.A / im.height)
         im = im.resize((int(im.width * esc + 0.5), int(im.height * esc + 0.5)), self.Image.LANCZOS)
         x0, y0 = (im.width - self.L) // 2, (im.height - self.A) // 2
-        return im.crop((x0, y0, x0 + self.L, y0 + self.A))
+        return ParedeImagem(im.crop((x0, y0, x0 + self.L, y0 + self.A)))
 
     def imagem(self, ch, co, w, h, perfil):
         from array import array
@@ -6111,6 +6122,47 @@ class Rasterizador:
         return tela
 
 
+class ParedeImagem:
+    """Papel de parede parado: todo quadro é a mesma imagem."""
+
+    def __init__(self, im):
+        self.im = im
+
+    def quadros(self, inicio=0):
+        while True:
+            yield self.im
+
+
+class ParedeVideo:
+    """Papel de parede em vídeo: quadros em loop, 1920x1080 cortado, a partir de qualquer posição do loop."""
+
+    def __init__(self, caminho, L, A, fps, Image):
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", caminho],
+                                   capture_output=True, text=True, timeout=10).stdout.strip())
+        self.caminho, self.L, self.A, self.fps, self.Image = caminho, L, A, fps, Image
+        self.n = max(1, round(dur * fps))
+        self.procs = []
+
+    def quadros(self, inicio=0):
+        p = subprocess.Popen(["ffmpeg", "-v", "error", "-stream_loop", "-1", "-i", self.caminho, "-an",
+                              "-vf", f"fps={self.fps},scale={self.L}:{self.A}:force_original_aspect_ratio=increase,"
+                                     f"crop={self.L}:{self.A}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.procs.append(p)
+        tam = self.L * self.A * 3
+        for _ in range(inicio % self.n):
+            p.stdout.read(tam)
+        while True:
+            bruto = p.stdout.read(tam)
+            if len(bruto) < tam:
+                return
+            yield self.Image.frombytes("RGB", (self.L, self.A), bruto)
+
+    def fechar(self):
+        for p in self.procs:
+            p.kill()
+
+
 def gerar_video(saida, minutos=25.0, fps=30):
     """Roda o mesmo rodízio de cenas sem terminal e grava um vídeo 1920x1080 (começa e termina no preto, pra emendar)."""
     ras = Rasterizador()
@@ -6136,12 +6188,17 @@ def gerar_video(saida, minutos=25.0, fps=30):
     t_atual = t_prox = 0.0
     troca = random.uniform(*atual.duracao)
     extras = Extras()
-    parede = ras.parede()
+    parede = ras.parede(fps)
     funde = int(3 * fps)
+    abertura = int(60 * fps)
     if parede is not None:
-        bruto = parede.tobytes()
-        for _ in range(int(60 * fps)):
-            ff.stdin.write(bruto)
+        # o vídeo final em loop: abertura + rodízio + fim. O fim acaba no último quadro do loop do papel de parede,
+        # então o recomeço (quadro 0) emenda sem pulo.
+        quadros = parede.quadros(0)
+        for _ in range(abertura):
+            ff.stdin.write(next(quadros).tobytes())
+        n_loop = getattr(parede, "n", 1)
+        fim = parede.quadros(-funde % n_loop) if n_loop > 1 else quadros
     inicio = time.monotonic()
     for f in range(total):
         t_atual += dt
@@ -6186,15 +6243,17 @@ def gerar_video(saida, minutos=25.0, fps=30):
         extras.quadro(atual, t_atual, dt, A_ch, A_co, w, h)
         img = ras.imagem(A_ch, A_co, w, h, perfil)
         if parede is not None and f < funde:
-            img = ras.Image.blend(parede, img, f / funde)
+            img = ras.Image.blend(next(quadros), img, f / funde)
         elif parede is not None and f >= total - funde:
-            img = ras.Image.blend(img, parede, (f - (total - funde)) / funde)
+            img = ras.Image.blend(img, next(fim), (f - (total - funde)) / funde)
         ff.stdin.write(img.tobytes())
         if f % (fps * 60) == 0:
             gasto = time.monotonic() - inicio
             print(f"{f // fps // 60:3d}/{minutos:.0f} min de vídeo, {gasto / 60:.1f} min gastos", flush=True)
     ff.stdin.close()
     ff.wait()
+    if hasattr(parede, "fechar"):
+        parede.fechar()
     if ff.returncode != 0:
         raise SystemExit("ffmpeg falhou")
     os.replace(parcial, saida)

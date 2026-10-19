@@ -182,11 +182,13 @@ if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && tem hyprctl && [ "$TERMINAL" = w
   ) &
 fi
 
-# aproveita que você saiu de perto: se o vídeo da tela de bloqueio tem mais de 20h, gera um novo (prioridade mínima).
+# aproveita que você saiu de perto: se o vídeo da tela de bloqueio tem mais de 20h, ou o papel de parede da ilha
+# mudou depois dele (o vídeo começa e termina nele), gera um novo (prioridade mínima).
 # Só acontece se o vídeo foi configurado (instalar.sh --bloqueio instala o screensaver-video.service).
 if [ -f "$HOME/.config/systemd/user/screensaver-video.service" ]; then
   VID="$HOME/.local/share/screensaver-ascii/bloqueio.mp4"
-  if [ ! -f "$VID" ] || [ -n "$(find "$VID" -mmin +1200)" ]; then
+  PAREDE="$HOME/.local/state/lumxx/current/background"
+  if [ ! -f "$VID" ] || [ -n "$(find "$VID" -mmin +1200)" ] || [ -n "$(find "$PAREDE" -newer "$VID" 2>/dev/null)" ]; then
     systemctl --user start --no-block screensaver-video.service
   fi
 fi
