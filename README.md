@@ -43,12 +43,13 @@ E, se você quiser (só no KDE), o mesmo rodízio vira um **vídeo de fundo na t
 | `Torcida` | a torcida do Arsenal no Emirates: ola, cachecóis, sinalizadores e mosaicos de cartões |
 | `Canhao` | o canhão do Arsenal contra o galo do Tottenham (e o dirigível do City, que sempre aparece) |
 | `Escanteio` | gol de cabeça do Gabriel Magalhães em escanteio do Rice, com câmera estilo Futebol Brasileiro 96 e replay |
+| `Gago` | o Gago, torcedor do United em forma de Snorlax, vira balão sobre Old Trafford até o canhão do Arsenal estourar ele |
 
 Algumas cenas ainda podem vir **combinadas** (uma por cima da outra) e com paletas de cores sorteadas.
 
 ### Up the Arsenal
 
-Aqui é Gooner, então quatro cenas são do Arsenal, e City e Tottenham só entram pra apanhar:
+Aqui é Gooner, então cinco cenas são do Arsenal, e City, Tottenham e United só entram pra apanhar:
 
 - **`Arsenal`**: a partida no Emirates, com placar e relógio de TV, letreiros de LED e narração em português.
   Tem drible que deixa o zagueiro no chão, gol de escanteio de cabeça, chute na trave com rebote e, quando o rival
@@ -62,6 +63,11 @@ Aqui é Gooner, então quatro cenas são do Arsenal, e City e Tottenham só entr
 - **`Escanteio`**: a câmera de lado do SNES (Futebol Brasileiro 96 / ISS): Rice cobra, a câmera acompanha a bola,
   o Gabriel Magalhães sobe mais que todo mundo e testa pro gol, a rede estufa, o time corre pro abraço e vem o
   replay em câmera lenta. Sempre ele, sempre de cabeça.
+- **`Gago`**: debaixo da chuva de Manchester, o Gago, amigo torcedor do United (barbudo, cacheado, tatuado e
+  em forma de Snorlax) flutua amarrado no telhado de Old Trafford como balão de parada. Provoca ("Cadê a
+  Champions de vocês?")… até o Clawd chegar empurrando o canhão. Às vezes a bala quica, às vezes erra, mas no
+  fim ele estoura, sai voando com um `PFFFRRRT!` e cai murcho. Aí ele lembra do Ferguson, enche de novo e volta
+  pro lugar, com um curativo a mais. Embaixo, o plantão de notícias conta os estragos (e a goteira).
 
 | | | |
 |---|---|---|
