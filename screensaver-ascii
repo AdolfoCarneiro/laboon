@@ -5540,7 +5540,281 @@ def gago_em(u, v, cara="acordado", bracos=0.0, curativos=()):
     return None
 
 
-class Gago(Cena):
+def pintar_clawd(px, w, ph, x0, y0, s, t, passo=False, olhar=1):
+    """O Clawd de cachecol do Arsenal, com o canto de cima à esquerda em (x0, y0) no buffer de pixels."""
+    pix = arte_pixels(arte_clawd(olhar=olhar, fechados=(t % 3.7) < 0.14, passo=passo), x0, y0, s, CORES_CLAWD, ey=2 * s)
+    yc = y0 + 4 * s - 1
+    for xx in range(x0 + 3 * s, x0 + 15 * s):
+        pix[(xx, yc)] = ARS_VERMELHO if ((xx - x0) // (2 * s)) % 2 == 0 else 0xFFFFFF
+    for kk in range(1, 4 * s):
+        pix[(x0 + 4 * s - (1 if kk > 2 * s else 0), yc + kk)] = ARS_VERMELHO if (kk // s) % 2 else 0xFFFFFF
+    for (x, y), c in pix.items():
+        if 0 <= x < w and 0 <= y < ph:
+            px[y * w + x] = c
+
+
+class ComCanhao:
+    """O Clawd de cachecol com o canhão do Arsenal, mais o que vem junto: bala, fumaça, faíscas, BUM!, placar,
+    caixa de texto de Pokémon e plantão. A cena define c (escala do canhão), sc (do Clawd), chao, g (gravidade),
+    can, can_alvo, bala, disparo, parts, onomato, faixa, caixa, festa_ate, passo, placar e manchetes()."""
+    cor_respingo = 0xA8B4C0
+
+    def pivo(self):
+        k = self.can
+        return k["x"] + k["recuo"] + 0.5 * self.c, self.chao - 6.2 * self.c
+
+    def boca(self, ang=None):
+        ang = self.can["ang"] if ang is None else ang
+        x, y = self.pivo()
+        return x + 17 * self.c * math.cos(ang), y + 17 * self.c * math.sin(ang)
+
+    def mirar(self, tx, ty, T):
+        ang = self.can["ang"]
+        for _ in range(3):
+            bx, by = self.boca(ang)
+            vx, vy = (tx - bx) / T, (ty - by - 0.5 * self.g * T * T) / T
+            ang = max(-1.3, min(0.0, math.atan2(vy, vx)))
+        return ang, vx, vy
+
+    def trazer_canhao(self):
+        k = self.can
+        while k["x"] < self.can_alvo:
+            dx = min(self.can_alvo - k["x"], 12 * self.c * self.dt)
+            k["x"] += dx
+            k["giro"] += dx / (4.6 * self.c)
+            self.passo = int(self.t * 6) % 2 == 0
+            yield
+        self.passo = False
+
+    def atirar(self, alvo, tipo, T=None):
+        """Gira o cano pra alvo(t_impacto) -> (x, y), o Clawd acende o pavio e dispara (não espera a bala cair)."""
+        k = self.can
+        T = T or random.uniform(0.85, 1.05)
+        ang, _, _ = self.mirar(*alvo(self.t + 1.8 + T), T)
+        a0, ini = k["ang"], self.t
+        while self.t - ini < 1.0:
+            k["ang"] = a0 + (ang - a0) * suave((self.t - ini) / 1.0)
+            yield
+        ini = self.t
+        while self.t - ini < 0.8:  # o Clawd acende o pavio
+            px_, py_ = self.pivo()
+            c, s = math.cos(k["ang"]), math.sin(k["ang"])
+            fx, fy = px_ - 5 * self.c * c + 2.2 * self.c * s, py_ - 5 * self.c * s - 2.2 * self.c * c
+            for _ in range(2):
+                self.parts.append([fx, fy, random.uniform(-14, 14), random.uniform(-22, -4),
+                                   random.choice((0xFFF2A0, 0xFFB040, 0xFF6020)), self.t, random.uniform(0.2, 0.45),
+                                   "faisca"])
+            yield
+        k["ang"], vx, vy = self.mirar(*alvo(self.t + T), T)
+        bx, by = self.boca()
+        self.bala = dict(x=bx, y=by, vx=vx, vy=vy, tipo=tipo)
+        self.disparo = self.t
+        self.onomato.append(("BUM!", bx + 4 * self.c, by - 6 * self.c, self.t, 0xFFE040))
+        for _ in range(26):
+            a = k["ang"] + random.uniform(-0.6, 0.6)
+            sp = random.uniform(8, 34)
+            self.parts.append([bx, by, math.cos(a) * sp, math.sin(a) * sp - 4, 0x9A9298, self.t,
+                               random.uniform(1.0, 2.0), "fumaca"])
+
+    def recuar(self):
+        """O tranco do canhão logo depois do tiro (a roda gira pra trás e volta)."""
+        k = self.can
+        p = self.t - self.disparo
+        recuo = -3 * self.c * (p / 0.06 if p < 0.06 else 1 - suave((p - 0.06) / 0.8)) if p < 0.9 else 0.0
+        k["giro"] += (recuo - k["recuo"]) / (4.6 * self.c)
+        k["recuo"] = recuo
+
+    def atualizar_bala(self, dt):
+        b = self.bala
+        if not b:
+            return
+        t = self.t
+        b["vy"] += self.g * dt
+        b["x"] += b["vx"] * dt
+        b["y"] += b["vy"] * dt
+        if random.random() < 0.6:
+            self.parts.append([b["x"], b["y"], 0.0, 0.0, 0x8A8E96, t, 0.5, "fumaca"])
+        self.colidir(b)
+        if self.bala is None:
+            return
+        chao = self.solo(b["x"])
+        if b["y"] >= chao - 1.5 and b["vy"] > 0:
+            for _ in range(10):
+                self.parts.append([b["x"], chao - 1.0, random.uniform(-20, 20), random.uniform(-30, -10),
+                                   self.cor_respingo, t, 0.5, "respingo"])
+            self.bala = None
+        elif b["x"] > self.w + 6 or b["x"] < -6 or b["y"] < -self.ph:
+            self.bala = None
+
+    def solo(self, x):
+        """Altura onde a bala para (chão ou água) naquele x."""
+        return self.chao
+
+    def colidir(self, b):
+        pass
+
+    def segmento(self, px, x0, y0, x1, y1, r, cor):
+        w, ph = self.w, self.ph
+        dx, dy = x1 - x0, y1 - y0
+        L2 = dx * dx + dy * dy or 1.0
+        for y in range(max(0, int(min(y0, y1) - r)), min(ph, int(max(y0, y1) + r) + 1)):
+            for x in range(max(0, int(min(x0, x1) - r)), min(w, int(max(x0, x1) + r) + 1)):
+                q = clamp(((x + 0.5 - x0) * dx + (y + 0.5 - y0) * dy) / L2)
+                if (x + 0.5 - x0 - q * dx) ** 2 + (y + 0.5 - y0 - q * dy) ** 2 <= r * r:
+                    px[y * w + x] = cor
+
+    def desenhar_canhao(self, px):
+        """Canhão de bronze numa carreta vermelha do Arsenal, com bandeirinha na ponta."""
+        w, ph, c, k = self.w, self.ph, self.c, self.can
+        x = k["x"] + k["recuo"]
+        if x < -25 * c:
+            return
+        pvx, pvy = self.pivo()
+        cx, cy = x - 12 * c, self.chao - 1.2 * c
+        self.segmento(px, pvx, pvy + 1.5 * c, cx, cy, 1.6 * c, 0x9A1A14)
+        self.segmento(px, pvx, pvy + 1.5 * c, cx, cy, 0.5 * c, 0xC8281C)
+        mx = pvx - 4 * c
+        topo = self.chao - 15 * c
+        self.segmento(px, mx, self.chao - 3 * c, mx, topo, 0.4, 0xD8D8D8)
+        for yy in range(int(topo), int(topo + 3.5 * c) + 1):
+            alto = (yy - topo) / (3.5 * c)
+            larg = 6 * c * (1 - abs(alto - 0.5) * 0.8)
+            for xx in range(int(mx - larg), int(mx)):
+                onda = math.sin(self.t * 7 + xx * 0.6) * 0.6
+                if 0 <= xx < w and 0 <= yy + int(onda) < ph:
+                    px[(yy + int(onda)) * w + xx] = 0xFFFFFF if alto < 0.18 or alto > 0.82 else ARS_VERMELHO
+        ca, sa = math.cos(k["ang"]), math.sin(k["ang"])
+        for y in range(max(0, int(pvy - 19 * c)), min(ph, int(pvy + 8 * c))):
+            for xx in range(max(0, int(pvx - 9 * c)), min(w, int(pvx + 19 * c))):
+                lx, ly = xx + 0.5 - pvx, y + 0.5 - pvy
+                a, b = (lx * ca + ly * sa) / c, (-lx * sa + ly * ca) / c
+                if -5 <= a <= 17:
+                    r = 2.3 - 0.7 * (a + 5) / 22 + (0.5 if a > 15.6 else 0.4 if -1 < a < 0.2 or a < -4.2 else 0)
+                    if abs(b) <= r:
+                        px[y * w + xx] = 0xF4D98A if b < -0.35 * r else 0xC9A24A if b < 0.4 * r else 0x8E6E2C
+                        continue
+                if math.hypot(a + 6, b) <= 1.3:
+                    px[y * w + xx] = 0xC9A24A
+        wx, wy, rr = x, self.chao - 4.6 * c, 4.6 * c
+        for y in range(max(0, int(wy - rr)), min(ph, int(wy + rr) + 1)):
+            for xx in range(max(0, int(wx - rr)), min(w, int(wx + rr) + 1)):
+                dx, dy = xx + 0.5 - wx, y + 0.5 - wy
+                d = math.hypot(dx, dy)
+                if d > rr:
+                    continue
+                if d > rr - 0.6 * c:
+                    px[y * w + xx] = 0x26262A
+                elif d > rr - 1.4 * c:
+                    px[y * w + xx] = 0x5A3A1E
+                elif d < 1.1 * c:
+                    px[y * w + xx] = 0xC9A24A
+                else:
+                    a = (math.atan2(dy, dx) - k["giro"]) % (math.pi / 4)
+                    if min(a, math.pi / 4 - a) * d < 0.55 * c:
+                        px[y * w + xx] = 0x7A4A22
+
+    def desenhar_clawd(self, px):
+        """O Clawd de cachecol, empurrando e operando o canhão."""
+        s, t = self.sc, self.t
+        pulo = int(abs(math.sin(t * 7)) * 4 * s) if t < self.festa_ate else 0
+        self.clawd_x = int(self.can["x"] + self.can["recuo"] - 13 * self.c - 18 * s)
+        self.clawd_y = self.chao - 10 * s - pulo
+        pintar_clawd(px, self.w, self.ph, self.clawd_x, self.clawd_y, s, t, self.passo)
+
+    def desenhar_bala(self, px):
+        w, ph, b = self.w, self.ph, self.bala
+        if not b:
+            return
+        r = max(1.2, 1.4 * self.c)
+        for y in range(int(b["y"] - r), int(b["y"] + r) + 1):
+            for x in range(int(b["x"] - r), int(b["x"] + r) + 1):
+                if 0 <= x < w and 0 <= y < ph and (x + 0.5 - b["x"]) ** 2 + (y + 0.5 - b["y"]) ** 2 <= r * r:
+                    px[y * w + x] = 0x6A6E76 if x < b["x"] - r * 0.3 and y < b["y"] - r * 0.3 else 0x1C1C20
+
+    def desenhar_parts(self, px, dt):
+        w, ph, t = self.w, self.ph, self.t
+        vivas = []
+        for p in self.parts:
+            idade = (t - p[5]) / p[6]
+            if idade >= 1:
+                continue
+            vivas.append(p)
+            tipo = p[7]
+            if tipo == "fumaca":
+                p[2] *= 1 - 1.5 * dt
+                p[3] = p[3] * (1 - 1.5 * dt) - 6 * dt
+            elif tipo == "bolha":  # sobe sem gravidade
+                p[2] = math.sin((t - p[5]) * 9 + p[0]) * 4
+            elif tipo == "pena":  # cai devagar, balançando
+                p[2] = math.sin((t - p[5]) * 5 + p[1]) * 9
+                p[3] += (12 - p[3]) * min(1.0, dt * 3)
+            else:
+                p[3] += (40 if tipo == "faisca" else 90) * dt
+            p[0] += p[2] * dt
+            p[1] += p[3] * dt
+            if tipo == "fumaca":
+                r = 1 + idade * 3 * self.c
+                a = 0.55 * (1 - idade)
+                for yy in range(max(0, int(p[1] - r)), min(ph, int(p[1] + r) + 1)):
+                    for xx in range(max(0, int(p[0] - r)), min(w, int(p[0] + r) + 1)):
+                        if (xx - p[0]) ** 2 + (yy - p[1]) ** 2 <= r * r:
+                            px[yy * w + xx] = misturar(px[yy * w + xx], p[4], a)
+            elif 0 <= int(p[0]) < w and 0 <= int(p[1]) < ph:
+                px[int(p[1]) * w + int(p[0])] = p[4]
+        self.parts = vivas
+
+    def desenhar_letreiros(self, px):
+        w, ph, t = self.w, self.ph, self.t
+        esc = 2 if ph >= 80 else 1
+        vivos = []
+        for o in self.onomato:
+            txt, x, y, t0, cor = o
+            if t - t0 < 0.9:
+                vivos.append(o)
+                e = 1 if txt.startswith(("PFF", "PUF", "TSS", "NHAC", "TOC", "TUM", "POF")) else esc
+                letreiro(px, w, ph, txt, max(3 * len(txt) * e, min(w - 3 * len(txt) * e, x)),
+                         max(4 * e, y - (t - t0) * 6), e, cor, 0x1C1C1C if cor == 0xFFFFFF else ARS_VERMELHO)
+        self.onomato = vivos
+        if self.faixa:
+            txt, t0 = self.faixa
+            p = t - t0
+            if p > 4.0:
+                self.faixa = None
+            elif p > 0.6 or int(p * 10) % 2:
+                e = esc_letreiro(txt, w * 0.9, 3)
+                letreiro(px, w, ph, txt, w / 2, 4 + 3 * e, e, ARS_VERMELHO, 0xFFFFFF)
+
+    def desenhar_caixa(self, ch, co):
+        """Caixa de texto de Pokémon (GBA): o GAGO lembrou do Ferguson!"""
+        if not self.caixa:
+            return
+        w, h = self.w, self.h
+        l1, l2, t0 = self.caixa
+        larg = min(w - 4, max(len(l1), len(l2)) + 6)
+        x0, y0 = (w - larg) // 2, h - 6
+        n = int((self.t - t0) * 30)
+        borda, papel, tinta = 0x5878A8, 0xF8F8F8, 0x383838
+        chip(ch, co, w, h, x0, y0, "╭" + "─" * (larg - 2) + "╮", borda, papel)
+        for k, l in enumerate((l1[:n], l2[:max(0, n - len(l1))])):
+            chip(ch, co, w, h, x0, y0 + 1 + k, "│ " + l.ljust(larg - 4) + " │", tinta, papel)
+            escrever(ch, co, w, h, x0, y0 + 1 + k, "│", fundo(borda, papel))
+            escrever(ch, co, w, h, x0 + larg - 1, y0 + 1 + k, "│", fundo(borda, papel))
+        chip(ch, co, w, h, x0, y0 + 3, "╰" + "─" * (larg - 2) + "╯", borda, papel)
+        if n > len(l1) + len(l2) and int(self.t * 3) % 2:
+            escrever(ch, co, w, h, x0 + larg - 3, y0 + 2, "▼", fundo(0xE04040, papel))
+
+    def desenhar_plantao(self, ch, co):
+        """Letreiro de notícias passando lá embaixo."""
+        w, h, t = self.w, self.h, self.t
+        manchetes = self.manchetes()
+        txt = "   ●   ".join(manchetes) + "   ●   "
+        x = chip(ch, co, w, h, 0, h - 1, " PLANTÃO ", 0xFFFFFF, ARS_VERMELHO)
+        off = int(t * 9) % len(txt)
+        faixa = (txt[off:] + txt)[:max(0, w - x)]
+        chip(ch, co, w, h, x, h - 1, " " + faixa[:-1], 0xE8E8E8, 0x16181C)
+
+
+class Gago(ComCanhao, Cena):
     """O Gago, amigo torcedor do United, em forma de Snorlax, vira balão de parada amarrado em Old Trafford,
     debaixo da chuva de Manchester. Provoca, provoca... até o Clawd chegar empurrando o canhão do Arsenal."""
     combinavel = False
@@ -5710,25 +5984,6 @@ class Gago(Cena):
     def falar(self, txt, quem="gago"):
         self.falas[quem] = (txt, self.t)
 
-    # --- canhão
-
-    def pivo(self):
-        k = self.can
-        return k["x"] + k["recuo"] + 0.5 * self.c, self.chao - 6.2 * self.c
-
-    def boca(self, ang=None):
-        ang = self.can["ang"] if ang is None else ang
-        x, y = self.pivo()
-        return x + 17 * self.c * math.cos(ang), y + 17 * self.c * math.sin(ang)
-
-    def mirar(self, tx, ty, T):
-        ang = self.can["ang"]
-        for _ in range(3):
-            bx, by = self.boca(ang)
-            vx, vy = (tx - bx) / T, (ty - by - 0.5 * self.g * T * T) / T
-            ang = max(-1.3, min(0.0, math.atan2(vy, vx)))
-        return ang, vx, vy
-
     # --- roteiro
 
     def roteiro(self):
@@ -5774,18 +6029,8 @@ class Gago(Cena):
         g["estado"], g["desde"] = estado, self.t
         g["de"] = (g["x"], g["y"], g["s"], g["larga"], g["achata"])
 
-    def trazer_canhao(self):
-        k = self.can
-        while k["x"] < self.can_alvo:
-            dx = min(self.can_alvo - k["x"], self.R * 1.2 * self.dt)
-            k["x"] += dx
-            k["giro"] += dx / (4.6 * self.c)
-            self.passo = int(self.t * 6) % 2 == 0
-            yield
-        self.passo = False
-
     def disparar(self, tipo):
-        k, R = self.can, self.R
+        R = self.R
 
         def alvo(t_imp):
             x, y, _ = self.pos_flutuando(t_imp)
@@ -5793,32 +6038,7 @@ class Gago(Cena):
                 return x - R * 0.2, y - 2.4 * R
             return x - R * 0.35, y + R * 0.15
 
-        T = random.uniform(0.85, 1.05)
-        ang, _, _ = self.mirar(*alvo(self.t + 1.8 + T), T)
-        a0, ini = k["ang"], self.t
-        while self.t - ini < 1.0:
-            k["ang"] = a0 + (ang - a0) * suave((self.t - ini) / 1.0)
-            yield
-        ini = self.t
-        while self.t - ini < 0.8:  # o Clawd acende o pavio
-            px_, py_ = self.pivo()
-            c, s = math.cos(k["ang"]), math.sin(k["ang"])
-            fx, fy = px_ - 5 * self.c * c + 2.2 * self.c * s, py_ - 5 * self.c * s - 2.2 * self.c * c
-            for _ in range(2):
-                self.parts.append([fx, fy, random.uniform(-14, 14), random.uniform(-22, -4),
-                                   random.choice((0xFFF2A0, 0xFFB040, 0xFF6020)), self.t, random.uniform(0.2, 0.45),
-                                   "faisca"])
-            yield
-        k["ang"], vx, vy = self.mirar(*alvo(self.t + T), T)
-        bx, by = self.boca()
-        self.bala = dict(x=bx, y=by, vx=vx, vy=vy, tipo=tipo)
-        self.disparo = self.t
-        self.onomato.append(("BUM!", bx + 4 * self.c, by - 6 * self.c, self.t, 0xFFE040))
-        for _ in range(26):
-            a = k["ang"] + random.uniform(-0.6, 0.6)
-            sp = random.uniform(8, 34)
-            self.parts.append([bx, by, math.cos(a) * sp, math.sin(a) * sp - 4, 0x9A9298, self.t,
-                               random.uniform(1.0, 2.0), "fumaca"])
+        yield from self.atirar(alvo, tipo)
         self.gago["cara"] = "assustado"
         while self.bala:
             yield
@@ -5827,11 +6047,7 @@ class Gago(Cena):
 
     def atualizar(self, dt):
         t, w, ph = self.t, self.w, self.ph
-        k = self.can
-        p = t - self.disparo
-        recuo = -3 * self.c * (p / 0.06 if p < 0.06 else 1 - suave((p - 0.06) / 0.8)) if p < 0.9 else 0.0
-        k["giro"] += (recuo - k["recuo"]) / (4.6 * self.c)
-        k["recuo"] = recuo
+        self.recuar()
         self.atualizar_bala(dt)
         self.atualizar_gago(dt)
         g = self.gago
@@ -5866,16 +6082,8 @@ class Gago(Cena):
         elif self.relampago and t - self.relampago[0] > 0.3:
             self.relampago = None
 
-    def atualizar_bala(self, dt):
-        b = self.bala
-        if not b:
-            return
+    def colidir(self, b):
         t = self.t
-        b["vy"] += self.g * dt
-        b["x"] += b["vx"] * dt
-        b["y"] += b["vy"] * dt
-        if random.random() < 0.6:
-            self.parts.append([b["x"], b["y"], 0.0, 0.0, 0x8A8E96, t, 0.5, "fumaca"])
         g = self.gago
         if b["tipo"] in ("quica", "estoura") and g["estado"] == "flutuando":
             u, v = self.local(b["x"], b["y"])
@@ -5887,13 +6095,6 @@ class Gago(Cena):
                 else:
                     self.estourar(u, v)
                     b["vx"], b["vy"], b["tipo"] = b["vx"] * 0.3, b["vy"] * 0.3, "passou"
-        if b["y"] >= self.chao - 1.5 and b["vy"] > 0:
-            for _ in range(10):
-                self.parts.append([b["x"], self.chao - 1.0, random.uniform(-20, 20), random.uniform(-30, -10),
-                                   0xA8B4C0, t, 0.5, "respingo"])
-            self.bala = None
-        elif b["x"] > self.w + 6 or b["x"] < -6 or b["y"] < -self.ph:
-            self.bala = None
 
     def estourar(self, u, v):
         g, t = self.gago, self.t
@@ -5984,13 +6185,7 @@ class Gago(Cena):
         self.desenhar_gago(px)
         self.desenhar_canhao(px)
         self.desenhar_clawd(px)
-        b = self.bala
-        if b:
-            r = max(1.2, 1.4 * self.c)
-            for y in range(int(b["y"] - r), int(b["y"] + r) + 1):
-                for x in range(int(b["x"] - r), int(b["x"] + r) + 1):
-                    if 0 <= x < w and 0 <= y < ph and (x + 0.5 - b["x"]) ** 2 + (y + 0.5 - b["y"]) ** 2 <= r * r:
-                        px[y * w + x] = 0x6A6E76 if x < b["x"] - r * 0.3 and y < b["y"] - r * 0.3 else 0x1C1C20
+        self.desenhar_bala(px)
         self.desenhar_parts(px, dt)
         self.desenhar_chuva(px)
         self.desenhar_letreiros(px)
@@ -6075,110 +6270,6 @@ class Gago(Cena):
                     letreiro(px, w, ph, txt, x, y, 1, 0xFFFFFF)
                     break
 
-    def segmento(self, px, x0, y0, x1, y1, r, cor):
-        w, ph = self.w, self.ph
-        dx, dy = x1 - x0, y1 - y0
-        L2 = dx * dx + dy * dy or 1.0
-        for y in range(max(0, int(min(y0, y1) - r)), min(ph, int(max(y0, y1) + r) + 1)):
-            for x in range(max(0, int(min(x0, x1) - r)), min(w, int(max(x0, x1) + r) + 1)):
-                q = clamp(((x + 0.5 - x0) * dx + (y + 0.5 - y0) * dy) / L2)
-                if (x + 0.5 - x0 - q * dx) ** 2 + (y + 0.5 - y0 - q * dy) ** 2 <= r * r:
-                    px[y * w + x] = cor
-
-    def desenhar_canhao(self, px):
-        """Canhão de bronze numa carreta vermelha do Arsenal, com bandeirinha na ponta."""
-        w, ph, c, k = self.w, self.ph, self.c, self.can
-        x = k["x"] + k["recuo"]
-        if x < -25 * c:
-            return
-        pvx, pvy = self.pivo()
-        cx, cy = x - 12 * c, self.chao - 1.2 * c
-        self.segmento(px, pvx, pvy + 1.5 * c, cx, cy, 1.6 * c, 0x9A1A14)
-        self.segmento(px, pvx, pvy + 1.5 * c, cx, cy, 0.5 * c, 0xC8281C)
-        mx = pvx - 4 * c
-        topo = self.chao - 15 * c
-        self.segmento(px, mx, self.chao - 3 * c, mx, topo, 0.4, 0xD8D8D8)
-        for yy in range(int(topo), int(topo + 3.5 * c) + 1):
-            alto = (yy - topo) / (3.5 * c)
-            larg = 6 * c * (1 - abs(alto - 0.5) * 0.8)
-            for xx in range(int(mx - larg), int(mx)):
-                onda = math.sin(self.t * 7 + xx * 0.6) * 0.6
-                if 0 <= xx < w and 0 <= yy + int(onda) < ph:
-                    px[(yy + int(onda)) * w + xx] = 0xFFFFFF if alto < 0.18 or alto > 0.82 else ARS_VERMELHO
-        ca, sa = math.cos(k["ang"]), math.sin(k["ang"])
-        for y in range(max(0, int(pvy - 19 * c)), min(ph, int(pvy + 8 * c))):
-            for xx in range(max(0, int(pvx - 9 * c)), min(w, int(pvx + 19 * c))):
-                lx, ly = xx + 0.5 - pvx, y + 0.5 - pvy
-                a, b = (lx * ca + ly * sa) / c, (-lx * sa + ly * ca) / c
-                if -5 <= a <= 17:
-                    r = 2.3 - 0.7 * (a + 5) / 22 + (0.5 if a > 15.6 else 0.4 if -1 < a < 0.2 or a < -4.2 else 0)
-                    if abs(b) <= r:
-                        px[y * w + xx] = 0xF4D98A if b < -0.35 * r else 0xC9A24A if b < 0.4 * r else 0x8E6E2C
-                        continue
-                if math.hypot(a + 6, b) <= 1.3:
-                    px[y * w + xx] = 0xC9A24A
-        wx, wy, rr = x, self.chao - 4.6 * c, 4.6 * c
-        for y in range(max(0, int(wy - rr)), min(ph, int(wy + rr) + 1)):
-            for xx in range(max(0, int(wx - rr)), min(w, int(wx + rr) + 1)):
-                dx, dy = xx + 0.5 - wx, y + 0.5 - wy
-                d = math.hypot(dx, dy)
-                if d > rr:
-                    continue
-                if d > rr - 0.6 * c:
-                    px[y * w + xx] = 0x26262A
-                elif d > rr - 1.4 * c:
-                    px[y * w + xx] = 0x5A3A1E
-                elif d < 1.1 * c:
-                    px[y * w + xx] = 0xC9A24A
-                else:
-                    a = (math.atan2(dy, dx) - k["giro"]) % (math.pi / 4)
-                    if min(a, math.pi / 4 - a) * d < 0.55 * c:
-                        px[y * w + xx] = 0x7A4A22
-
-    def desenhar_clawd(self, px):
-        """O Clawd de cachecol, empurrando e operando o canhão."""
-        w, ph, s, t = self.w, self.ph, self.sc, self.t
-        pulo = int(abs(math.sin(t * 7)) * 4 * s) if t < self.festa_ate else 0
-        self.clawd_x = int(self.can["x"] + self.can["recuo"] - 13 * self.c - 18 * s)
-        y0 = self.clawd_y = self.chao - 10 * s - pulo
-        arte = arte_clawd(olhar=1, fechados=(t % 3.7) < 0.14, passo=self.passo)
-        pix = arte_pixels(arte, self.clawd_x, y0, s, CORES_CLAWD, ey=2 * s)
-        yc = y0 + 4 * s - 1
-        for xx in range(self.clawd_x + 3 * s, self.clawd_x + 15 * s):
-            pix[(xx, yc)] = ARS_VERMELHO if ((xx - self.clawd_x) // (2 * s)) % 2 == 0 else 0xFFFFFF
-        for kk in range(1, 4 * s):
-            pix[(self.clawd_x + 4 * s - (1 if kk > 2 * s else 0), yc + kk)] = ARS_VERMELHO if (kk // s) % 2 else 0xFFFFFF
-        for (x, y), c in pix.items():
-            if 0 <= x < w and 0 <= y < ph:
-                px[y * w + x] = c
-
-    def desenhar_parts(self, px, dt):
-        w, ph, t = self.w, self.ph, self.t
-        vivas = []
-        for p in self.parts:
-            idade = (t - p[5]) / p[6]
-            if idade >= 1:
-                continue
-            vivas.append(p)
-            tipo = p[7]
-            if tipo == "fumaca":
-                p[2] *= 1 - 1.5 * dt
-                p[3] = p[3] * (1 - 1.5 * dt) - 6 * dt
-            else:
-                p[3] += (40 if tipo == "faisca" else 90) * dt
-            p[0] += p[2] * dt
-            p[1] += p[3] * dt
-            if tipo == "fumaca":
-                r = 1 + idade * 3 * self.c
-                a = 0.55 * (1 - idade)
-                for yy in range(max(0, int(p[1] - r)), min(ph, int(p[1] + r) + 1)):
-                    for xx in range(max(0, int(p[0] - r)), min(w, int(p[0] + r) + 1)):
-                        if (xx - p[0]) ** 2 + (yy - p[1]) ** 2 <= r * r:
-                            px[yy * w + xx] = misturar(px[yy * w + xx], p[4], a)
-            elif 0 <= int(p[0]) < w and 0 <= int(p[1]) < ph:
-                px[int(p[1]) * w + int(p[0])] = p[4]
-        self.parts = vivas
-
     def desenhar_chuva(self, px):
         w, ph = self.w, self.ph
         for x, y, _ in self.chuva:
@@ -6187,49 +6278,7 @@ class Gago(Cena):
                 if 0 <= xx < w and 0 <= yy < ph:
                     px[yy * w + xx] = misturar(px[yy * w + xx], 0xC8D2DC, 0.45 - 0.12 * k)
 
-    def desenhar_letreiros(self, px):
-        w, ph, t = self.w, self.ph, self.t
-        esc = 2 if ph >= 80 else 1
-        vivos = []
-        for o in self.onomato:
-            txt, x, y, t0, cor = o
-            if t - t0 < 0.9:
-                vivos.append(o)
-                e = 1 if txt.startswith("PFF") else esc
-                letreiro(px, w, ph, txt, max(3 * len(txt) * e, min(w - 3 * len(txt) * e, x)),
-                         max(4 * e, y - (t - t0) * 6), e, cor, 0x1C1C1C if cor == 0xFFFFFF else ARS_VERMELHO)
-        self.onomato = vivos
-        if self.faixa:
-            txt, t0 = self.faixa
-            p = t - t0
-            if p > 4.0:
-                self.faixa = None
-            elif p > 0.6 or int(p * 10) % 2:
-                e = esc_letreiro(txt, w * 0.9, 3)
-                letreiro(px, w, ph, txt, w / 2, 4 + 3 * e, e, ARS_VERMELHO, 0xFFFFFF)
-
-    def desenhar_caixa(self, ch, co):
-        """Caixa de texto de Pokémon (GBA): o GAGO lembrou do Ferguson!"""
-        if not self.caixa:
-            return
-        w, h = self.w, self.h
-        l1, l2, t0 = self.caixa
-        larg = min(w - 4, max(len(l1), len(l2)) + 6)
-        x0, y0 = (w - larg) // 2, h - 6
-        n = int((self.t - t0) * 30)
-        borda, papel, tinta = 0x5878A8, 0xF8F8F8, 0x383838
-        chip(ch, co, w, h, x0, y0, "╭" + "─" * (larg - 2) + "╮", borda, papel)
-        for k, l in enumerate((l1[:n], l2[:max(0, n - len(l1))])):
-            chip(ch, co, w, h, x0, y0 + 1 + k, "│ " + l.ljust(larg - 4) + " │", tinta, papel)
-            escrever(ch, co, w, h, x0, y0 + 1 + k, "│", fundo(borda, papel))
-            escrever(ch, co, w, h, x0 + larg - 1, y0 + 1 + k, "│", fundo(borda, papel))
-        chip(ch, co, w, h, x0, y0 + 3, "╰" + "─" * (larg - 2) + "╯", borda, papel)
-        if n > len(l1) + len(l2) and int(self.t * 3) % 2:
-            escrever(ch, co, w, h, x0 + larg - 3, y0 + 2, "▼", fundo(0xE04040, papel))
-
-    def desenhar_plantao(self, ch, co):
-        """Letreiro de notícias passando lá embaixo."""
-        w, h, t = self.w, self.h, self.t
+    def manchetes(self):
         n = self.placar
         manchetes = ["United completa mais um ano sem Premier League", "United segue brigando pra não cair",
                      "Contratações milionárias do United seguem sem surtir efeito",
@@ -6240,11 +6289,1741 @@ class Gago(Cena):
                      "Arsenal lidera; United segue flutuando no meio da tabela"]
         if n:
             manchetes.insert(1, f"Gago murcha pela {n}ª vez" + (" e ganha mais um curativo" if n > 1 else ""))
-        txt = "   ●   ".join(manchetes) + "   ●   "
-        x = chip(ch, co, w, h, 0, h - 1, " PLANTÃO ", 0xFFFFFF, ARS_VERMELHO)
-        off = int(t * 9) % len(txt)
-        faixa = (txt[off:] + txt)[:max(0, w - x)]
-        chip(ch, co, w, h, x, h - 1, " " + faixa[:-1], 0xE8E8E8, 0x16181C)
+        return manchetes
+
+
+# ------------------------------------------------ o Maumau do Galo (o Barba Ruiva, o Coisa Ruim)
+
+PELE_MAU, CABELO_MAU, BARBA_MAU = 0xEDB892, 0x6E3A1E, 0xB8542A
+CAM_PRETO, CAM_BRANCO = 0x161616, 0xECECEC
+GALO_ATL = [l.replace("L", "R") if i < 2 else l for i, l in enumerate(GALO)]
+GALO_ATL_CANTA = GALO_ATL[:4] + GALO_CANTA[4:7] + GALO_ATL[7:]
+CORES_GALO_ATL = {"N": 0x1E1E1E, "n": 0x0A0A0A, "L": 0xF0F0F0, "W": 0xFFFFFF, "K": 0x000000, "Y": 0xF2B33D,
+                  "R": 0xD8261C}
+GALINHO = ["..RR....",
+           ".NNN....",
+           "YNKN...L",
+           ".RNN..LL",
+           "..NNNNNL",
+           "..NNNNN.",
+           "...Y.Y.."]
+GALINHO_CANTA = GALINHO[:2] + ["YYKN...L", "Y.NN..LL"] + GALINHO[4:]
+FRANGO = ["....hhBB.......",
+          "..hhBBBBBB.....",
+          ".hBBBBBBBBBB.oo",
+          "hBBBBBBBBBBBBoo",
+          "BBBBBBBBBBBbb..",
+          "oBBBBBBBBBbb...",
+          "oo.bbbbbbb.....",
+          "ppppppppppppppp",
+          ".PPPPPPPPPPPPP."]
+CORES_FRANGO = {"b": 0x7A3A14, "B": 0xC0682A, "h": 0xF0B060, "o": 0xF4ECDC, "p": 0xE0E0E0, "P": 0xA8A8A8}
+MEDALHA = ["r.....r",
+           ".r...r.",
+           "..r.r..",
+           "...r...",
+           "..SSS..",
+           ".ShhsS.",
+           "ShhsssS",
+           "SsssssS",
+           ".SsssS.",
+           "..SSS.."]
+CORES_MEDALHA = {"r": 0x3A5AC0, "S": 0x8E949C, "s": 0xC8CCD2, "h": 0xF6F8FA}
+
+
+def maumau_em(u, v, cara="normal", bracos=(0.15, 0.15), chapeu=None, chifres=False, brilho=False, vermelho=0.0):
+    """Cor do Maumau no ponto (u, v), em unidades de meia cabeça (cintura em (0, 0), v pra baixo); None = fora.
+    bracos = (esquerdo, direito) em radianos a partir de caído (pi/2 = T-pose, pi = pra cima).
+    cara: normal, rindo, bravo, triste, assustado ou mastigando; vermelho (0..1) é a raiva subindo pro rosto."""
+    if v < -2.35 or v > 1.8 or abs(u) > 1.8:
+        return None
+    if chapeu == "pirata":  # tricórnio preto com a caveirinha branca
+        if (u / 0.8) ** 2 + ((v + 1.86) / 0.14) ** 2 <= 1:
+            return 0xD9B030 if v > -1.83 else 0x1A1A1A
+        if abs(u) <= 0.5 - 0.25 * max(0.0, -2.05 - v) / 0.25 and -2.3 <= v <= -1.86:
+            if (u / 0.11) ** 2 + ((v + 2.06) / 0.09) ** 2 <= 1:
+                return 0x0A0A0A if abs(u) > 0.03 and abs(u) < 0.07 and v < -2.06 else 0xF4F4F4
+            return 0x222222 if v > -1.98 else 0x1A1A1A
+    if chifres:
+        for s in (-1, 1):
+            k = (-1.72 - v) / 0.5  # 0 na base, 1 na ponta
+            if 0 <= k <= 1 and abs(u * s - 0.3 - 0.16 * k * k) <= 0.11 * (1 - k):
+                return 0xE03024 if u * s < 0.3 + 0.16 * k * k else 0x9A1812
+    # braços: manga listrada, depois pele, e a mão
+    for s, a in ((-1, bracos[0]), (1, bracos[1])):
+        sx, sy = 0.56 * s, -0.66
+        dx, dy = math.sin(a) * s, math.cos(a)
+        q = (u - sx) * dx + (v - sy) * dy
+        if -0.05 <= q <= 1.18:
+            d2 = (u - sx - q * dx) ** 2 + (v - sy - q * dy) ** 2
+            if q > 1.0:
+                if (u - sx - 1.06 * dx) ** 2 + (v - sy - 1.06 * dy) ** 2 <= 0.026:
+                    return escala(PELE_MAU, 0.92)
+            elif d2 <= (0.2 if q < 0.34 else 0.15) ** 2:
+                if q < 0.34:
+                    return CAM_PRETO if int((q + 1) * 9) % 2 else CAM_BRANCO
+                return escala(PELE_MAU, 0.95 - 0.1 * (s > 0))
+    hx, hy = u / 0.48, (v + 1.42) / 0.56
+    if (abs(u) - 0.47) ** 2 / 0.006 + ((v + 1.4) / 0.13) ** 2 <= 1:
+        return escala(PELE_MAU, 0.86)  # orelhas
+    if hx * hx + hy * hy <= 1:
+        pele = misturar(PELE_MAU, 0xE8483A, vermelho)
+        if hy < -0.5 + 0.08 * math.sin(hx * 17):
+            return CABELO_MAU
+        ex, ey = abs(hx) - 0.38, hy + 0.02
+        sob = -0.25 - ex * (0.7 if cara == "bravo" or brilho else -0.6 if cara == "triste" else 0.0)
+        if abs(hy - sob) <= 0.065 and 0.14 <= abs(hx) <= 0.62:
+            return CABELO_MAU  # sobrancelhas
+        if brilho:
+            if ex * ex + ey * ey <= 0.03:
+                return 0xFFF0A0 if ex * ex + ey * ey <= 0.008 else 0xFF2A10
+        elif cara == "assustado":
+            d = ex * ex + ey * ey
+            if d <= 0.024:
+                return 0x1A1210 if d <= 0.007 else 0xFFFFFF
+        elif cara in ("rindo", "mastigando"):
+            if abs(ex) <= 0.13 and -0.06 <= ey <= 0.0 + 0.5 * abs(ex):
+                return 0x2A1A12
+        elif ex * ex / 0.014 + ey * ey / 0.026 <= 1:
+            return 0x1A1210
+        if cara == "triste" and abs(ex - 0.04) < 0.05 and 0.08 < ey < 0.36:
+            return 0x7AC8FF  # lágrima
+        if hx * hx / 0.02 + (hy - 0.16) ** 2 / 0.016 <= 1:
+            return escala(pele, 0.8)  # nariz
+        mx, my = hx / 0.34, (hy - 0.52) / 0.16
+        if cara == "rindo" and mx * mx + my * my <= 1 and my >= -0.5:
+            return 0xFFFFFF if my < 0.1 else 0x7A2020
+        if cara == "bravo" and abs(mx) <= 0.9 and abs(my) <= 0.45:
+            return 0xFFFFFF if int((mx + 1) * 5) % 2 or abs(my) < 0.15 else 0x5A2020
+        if cara == "assustado" and mx * mx / 0.25 + my * my / 0.9 <= 1:
+            return 0x3A1010
+        if cara == "triste" and abs(mx) <= 0.7 and abs(my + 0.4 * (1 - mx * mx)) <= 0.22:
+            return 0x5A2020
+        if cara == "mastigando" and abs(mx) <= 0.5 and abs(my) <= 0.25:
+            return 0x5A2020
+        if cara == "normal" and abs(mx) <= 0.6 and abs(my - 0.2 * (1 - mx * mx) + 0.1) <= 0.16:
+            return 0x5A2020
+        if -0.2 < hy - 0.33 < 0.1 and abs(hx) < 0.5:
+            return escala(BARBA_MAU, 0.85)  # bigode
+        if hy > 0.24 or (abs(hx) > 0.74 and hy > -0.1):
+            return escala(BARBA_MAU, 0.9 + 0.2 * math.sin(u * 37 + v * 23) * 0.5)
+        return escala(pele, 0.9 + 0.12 * clamp(0.5 - hx * 0.4 - hy * 0.4))
+    if (u / 0.42) ** 2 + ((v + 0.92) / 0.24) ** 2 <= 1:
+        return escala(BARBA_MAU, 0.95 + 0.1 * math.sin(u * 41 + v * 29))  # barba cai por cima da gola
+    if v < -0.85 or v > 1.8:
+        return None
+    if v <= 0.72:  # camisa listrada do Galo
+        larg = 0.6 - (0.12 * ((-0.62 - v) / 0.23) ** 2 if v < -0.62 else 0)
+        if abs(u) <= larg:
+            if (u / 0.22) ** 2 + ((v + 0.84) / 0.1) ** 2 <= 1:
+                return 0x0A0A0A  # gola
+            ex, ey = (u + 0.3) / 0.13, (v + 0.38) / 0.16
+            if abs(ex) <= 1 and -1 <= ey <= 1 - 0.6 * abs(ex) ** 2:
+                return CAM_BRANCO if abs(ex) > 0.62 or ey < -0.7 or ey > 0.55 - 0.6 * abs(ex) ** 2 else CAM_PRETO
+            if abs(u + 0.3) <= 0.05 and -0.66 <= v <= -0.58:
+                return 0xF2C230  # a estrela em cima do escudo
+            return escala(CAM_BRANCO if int((u + 3) / 0.2) % 2 else CAM_PRETO, 0.85 + 0.2 * clamp(0.5 - u * 0.6))
+        return None
+    if v <= 1.04:
+        return 0x1C1C1C if abs(u) <= 0.58 and not (v > 0.9 and abs(u) < 0.05) else None  # calção
+    for s in (-1, 1):
+        if abs(u - 0.28 * s) <= 0.17:
+            if v <= 1.44:
+                return escala(PELE_MAU, 0.94)
+            if v <= 1.6:
+                return CAM_BRANCO  # meião
+        if 1.6 < v <= 1.78 and -0.2 <= (u - 0.28 * s) * s <= 0.26:
+            return 0x202020  # chuteira
+    return None
+
+
+def pintar_forma(px, w, ph, cache, chave, fn, x, y, R, ang=0.0, caixa=(-1.8, 1.8, -2.35, 1.8)):
+    """Pinta fn(u, v) -> cor|None no buffer, escalado por R, girado por ang e centrado em (x, y). Usa cache."""
+    pix = cache.get(chave)
+    if pix is None:
+        if len(cache) > 160:
+            cache.clear()
+        ca, sa = math.cos(ang), math.sin(ang)
+        u0, u1, v0, v1 = caixa
+        if abs(ang) < 0.02:
+            xs, ys = range(int(u0 * R) - 1, int(u1 * R) + 2), range(int(v0 * R) - 1, int(v1 * R) + 2)
+        else:
+            r = int(R * max(abs(u0), abs(u1), abs(v0), abs(v1)) * 1.42) + 1
+            xs = ys = range(-r, r + 1)
+        pix = []
+        for dy in ys:
+            for dx in xs:
+                c = fn(((dx + 0.5) * ca + (dy + 0.5) * sa) / R, (-(dx + 0.5) * sa + (dy + 0.5) * ca) / R)
+                if c is not None:
+                    pix.append((dx, dy, c))
+        cache[chave] = pix
+    x0, y0 = int(x), int(y)
+    for dx, dy, c in pix:
+        xx, yy = x0 + dx, y0 + dy
+        if 0 <= xx < w and 0 <= yy < ph:
+            px[yy * w + xx] = c
+
+
+BAU = [".bbbbbbbbbb.",
+       "bBBBBBBBBBBb",
+       "gggggggggggg",
+       "bBBBBByBBBBb",
+       "bBBBBBBBBBBb",
+       "gggggggggggg",
+       "bBBBBBBBBBBb"]
+BAU_ABERTO = [".bbbbbbbbbb.", "bBBBBBBBBBBb", "gggggggggggg", "............", "oooooooooooo"] + BAU[3:]
+CORES_BAU = {"b": 0x4A2810, "B": 0x8A5428, "g": 0xE0B030, "y": 0x1A1A1A, "o": 0xFFE680}
+
+
+def navio_em(x, y, faixa=(CAM_PRETO, CAM_BRANCO), vela=0xEFE6D0, galo=True, furos=()):
+    """Navio pirata visto de lado, proa pra esquerda; (x, y) em unidades do navio, origem na linha d'água."""
+    if abs(x) <= 0.9 and -50 <= y <= -6:
+        return 0x5A3418  # mastro
+    if abs(y + 45) <= 0.7 and abs(x) <= 16:
+        return 0x5A3418  # verga
+    if -44 <= y <= -21:
+        q = (y + 44) / 23
+        b = 2.6 * math.sin(math.pi * q)  # a vela estufa pro lado da proa
+        if -15 - b <= x <= 15 - b:
+            if galo:
+                gx, gy = int(x + b + 10), int(y + 42)
+                if 0 <= gy < len(GALO_ATL) and 0 <= gx < len(GALO_ATL[0]):
+                    c = CORES_GALO_ATL.get(GALO_ATL[gy][gx])
+                    if c:
+                        return c
+            return escala(vela, 0.82 + 0.22 * math.sin(math.pi * clamp((x + b + 15) / 30)) - 0.08 * q)
+    if -35 <= x <= -25 and abs(y + 6 + (x + 25) * 0.6) <= 0.6:
+        return 0x5A3418  # gurupés
+    if 16 <= x <= 30 and -12 <= y < -6:
+        if y < -11:
+            return 0x3E2410
+        return 0xF0C060 if (x - 17) % 5 < 2 and -10 <= y <= -8 else 0x7A4A24  # castelo de popa
+    if -8 <= y < -6 and -33 <= x <= 30:
+        return 0x3E2410 if int(x) % 4 == 0 else None  # balaústre
+    if -6 <= y <= 7:
+        q = (y + 6) / 13
+        if -34 + 12 * q ** 1.5 <= x <= 30 - 6 * q * q:
+            for fx, fy in furos:
+                d = (x - fx) ** 2 + (y - fy) ** 2
+                if d <= 5 + 1.5 * math.sin(math.atan2(y - fy, x - fx) * 5):
+                    return 0x0E0806 if d <= 3 else 0x2A1608
+            if -4.5 <= y <= -1.5:
+                return faixa[int((x + 40) / 2) % 2]
+            if abs(y - 1.5) <= 1.0 and int(x + 40) % 8 in (3, 4) and -24 <= x <= 22:
+                return 0x2A1A10  # escotilhas
+            return 0x4E2C14 if int(y + 7) % 3 == 0 else escala(0x6A3E1E, 1.0 - 0.25 * q)
+    return None
+
+
+class BarbaRuiva(ComCanhao, Cena):
+    """O Maumau, o Barba Ruiva, pirata alvinegro com um galinho no ombro, atrás do baú escrito TAÇA. Lá dentro
+    sempre tem uma medalha de prata. Depois vem o Raja (ou o Botafogo com 10), e no fim o Clawd, da praia, com o
+    canhão do Arsenal: o galinho vira frango assado e o navio vai pro fundo."""
+    combinavel = False
+    peso = 0.8
+    duracao = (55, 75)
+    NOME = "BARBA RUIVA"
+    CHEGA = ["Barba Ruiva no comando!", "Içar as velas, cambada!", "Esse ano a taça é nossa!", "GALOOO!",
+             "Ninguém segura o Barba Ruiva!"]
+    ACHOU = ["Um baú escrito TAÇA!", "Achei o tesouro!", "Finalmente, a taça!", "É hoje!"]
+    PRATA = ["PRATA DE NOVO?!", "Medalha de prata... de novo.", "NÃO ACREDITO!", "Isso é sacanagem!"]
+    RAJA = ["O Raja de novo não!", "Lá vem o Raja...", "2013 de novo não!"]
+    BOTA = ["COM DEZ?! COM DEZ?!", "Devolve minha medalha!", "Eles tão com um a menos!"]
+    ERROU = ["Errou!", "Passou longe, gringo!", "Mira de cruzeirense!"]
+    FRANGO_FALA = ["MEU GALO!", "Virou frango!", "NÃÃÃO, MEU GALO!"]
+    AFUNDA = ["Glub glub...", "Foi pênalti!", "Chama o VAR!", "Socorro!"]
+    CLAWD_FALA = ["Up the Arsenal!", "Galo no mar? Vira frango.", "Fica paradinho aí...",
+                  "Esse é pelo primo do Tottenham."]
+    CLAWD_FESTA = ["Gooooner!", "Frango assado no ponto!", "Afundou bonito!"]
+    VOLTA = [("fez mais uma dívida!", "comprou outro navio!"), ("passou o chapéu na torcida!", "zarpou de novo!"),
+             ("parcelou um navio em 48x!", "voltou pro mar!"), ("prometeu que esse ano vai!", "içou as velas!")]
+
+    def iniciar(self):
+        w, h = self.w, self.h
+        ph = self.ph = 2 * h
+        self.k = max(0.6, min(w / 174, ph / 98))
+        self.c = self.k
+        self.sc = max(1, round(self.k))
+        self.g = ph * 1.0
+        self.mar = int(ph * 0.5)            # o horizonte
+        self.raia = int(ph * 0.76)          # a linha d'água do navio
+        self.chao = ph - max(5, int(ph * 0.09))  # a areia da ilha
+        self.praia = int(max(w * 0.3, 32 * self.c + 18 * self.sc))
+        self.Rm = 6.2 * self.k
+        self.sg = max(1, round(self.k))
+        self.cache = {}
+        self.fundo = self.montar_fundo()
+        self.px = [0] * (w * ph)
+        self.t = self.dt = 0.0
+        self.can_alvo = 13 * self.c + 18 * self.sc + 2
+        self.can = dict(x=-30 * self.c, ang=-0.25, giro=0.0, recuo=0.0)
+        self.passo = False
+        self.bala = None
+        self.disparo = -10.0
+        self.parts = []
+        self.falas = {}
+        self.caixa = None
+        self.onomato = []
+        self.faixa = None
+        self.festa_ate = -10.0
+        self.placar = 0
+        self.nav = dict(x=w + 60 * self.k, incl=0.0, afunda=0.0, vy=0.0, furos=[], estado="ok", tremor=-10.0)
+        self.mau = dict(cara="rindo", bracos=[0.2, 0.2], alvo=[0.2, 0.2], vermelho=0.0, alvo_verm=0.0)
+        self.galinho = "vivo"
+        self.canta = -10.0
+        self.frango = None       # dict(x, y, vy, pousado)
+        self.bau = None          # dict(x, y, estado)
+        self.medalha = None      # dict(x, y)
+        self.chapeu = None       # (x, y) do chapéu boiando
+        self.rival = None        # o navio do Raja ou a canoa do Botafogo
+        self.balas_raja = []     # (x0, y0, lx, ly, t0)
+        self.gen = self.roteiro()
+
+    # --- cenário
+
+    def montar_fundo(self):
+        w, ph, mar, chao = self.w, self.ph, self.mar, self.chao
+        px = [0] * (w * ph)
+        sol_x, sol_r = w * 0.64, ph * 0.13
+        for y in range(mar):
+            f = y / max(1, mar - 1)
+            base = misturar(0x2A1F4A, 0x8A3A5A, f * 1.4) if f < 0.7 else misturar(0x8A3A5A, 0xF09A48, (f - 0.7) / 0.3)
+            for x in range(w):
+                c = base
+                n = math.sin(x * 0.07 + y * 0.5) + math.sin(x * 0.023 - y * 0.9)
+                if 0.25 < f < 0.8 and n > 1.4:
+                    c = misturar(c, 0xF4A0A0, 0.35)  # nuvens compridas do fim de tarde
+                d = math.hypot(x - sol_x, (y - mar) * 1.0)
+                if d < sol_r and not (y > mar - sol_r * 0.5 and int(y) % 3 == 0):
+                    c = misturar(0xFFE07A, 0xFF9A40, d / sol_r)
+                elif d < sol_r * 1.7:
+                    c = misturar(c, 0xFFB060, 0.35 * (1 - (d - sol_r) / (sol_r * 0.7)))
+                px[y * w + x] = c
+        for y in range(mar, ph):
+            f = (y - mar) / max(1, ph - mar)
+            base = misturar(0x2A4A7A, 0x0E2440, f)
+            for x in range(w):
+                px[y * w + x] = base
+        # a ilhota da praia, com o coqueiro
+        for x in range(self.praia + 8):
+            topo = chao + max(0.0, (x - self.praia + 8) * 0.7)
+            for y in range(int(topo), ph):
+                px[y * w + x] = misturar(0xE8C88A, 0xC09A5A, (y - topo) / 6) if y > topo + 0.5 else 0xF4DCA0
+        tx = max(3, int(self.praia * 0.1))
+        alto = int(ph * 0.34)
+        topo_c = (tx, chao)
+        for k in range(alto):
+            x = int(tx + 3 * math.sin(k / alto * 1.6))
+            y = chao - k
+            for xx in (x, x + 1):
+                if 0 <= xx < w:
+                    px[y * w + xx] = 0x7A5230 if k % 3 else 0x5A3A20
+            topo_c = (x, y)
+        cx, cy = topo_c
+        for a in (-2.8, -2.2, -1.7, -1.2, -0.6, -0.1):
+            for r in range(int(ph * 0.16)):
+                x = int(cx + math.cos(a) * r)
+                y = int(cy + math.sin(a) * r * 0.6 + (r / (ph * 0.16)) ** 2 * ph * 0.08)
+                for dy in (0, 1):
+                    if 0 <= x < w and 0 <= y + dy < ph:
+                        px[(y + dy) * w + x] = 0x2E7A3A if dy else 0x48A050
+        return px
+
+    def solo(self, x):
+        return self.chao if x < self.praia else self.raia + 2
+
+    def desenhar_mar(self, px):
+        w, ph, mar, t = self.w, self.ph, self.mar, self.t
+        sol_x = w * 0.64
+        for y in range(mar, ph):
+            f = (y - mar) / max(1, ph - mar)
+            for x in range(self.praia if y >= self.chao - 1 else 0, w):
+                ond = math.sin(x * (0.35 - 0.2 * f) + t * (1.5 + f) + y * 1.7) + math.sin(x * 0.11 - t * 0.7 + y)
+                if ond > 1.55 - 0.3 * f:
+                    i = y * w + x
+                    perto = abs(x - sol_x) < w * 0.06 * (0.5 + f * 1.5)
+                    px[i] = misturar(px[i], 0xFFC870 if perto else 0x8AB8E0, 0.6 if perto else 0.35)
+
+    # --- o navio
+
+    def pos_nav(self, t=None):
+        t = self.t if t is None else t
+        n = self.nav
+        y = self.raia + math.sin(t * 1.3) * 0.8 * self.k + n["afunda"]
+        ang = 0.035 * math.sin(t * 0.9) + n["incl"]
+        p = self.t - n["tremor"]
+        if p < 0.6:
+            ang += 0.05 * math.sin(p * 30) * (1 - p / 0.6)
+        return n["x"], y, ang
+
+    def no_navio(self, lx, ly, t=None):
+        """Ponto do navio (unidades do navio) -> tela."""
+        x, y, a = self.pos_nav(t)
+        k = self.k
+        return x + (lx * math.cos(a) - ly * math.sin(a)) * k, y + (lx * math.sin(a) + ly * math.cos(a)) * k
+
+    def do_navio(self, x, y):
+        nx, ny, a = self.pos_nav()
+        dx, dy = (x - nx) / self.k, (y - ny) / self.k
+        return dx * math.cos(a) + dy * math.sin(a), -dx * math.sin(a) + dy * math.cos(a)
+
+    def pos_mau(self, t=None):
+        """Cintura do Maumau na tela (ele fica no convés, perto da proa)."""
+        return self.no_navio(-25, -6 - 1.78 * self.Rm / self.k, t)
+
+    def pos_galinho(self, t=None):
+        _, _, a = self.pos_nav(t)
+        mx, my = self.pos_mau(t)
+        R = self.Rm
+        return mx + 0.62 * R * math.cos(a) + 0.9 * R * math.sin(a), my + 0.62 * R * math.sin(a) - 0.9 * R * math.cos(a)
+
+    def falar(self, txt, quem="mau"):
+        self.falas[quem] = (txt, self.t)
+
+    def cara(self, cara, bracos=None, vermelho=None):
+        m = self.mau
+        m["cara"] = cara
+        if bracos is not None:
+            m["alvo"] = list(bracos)
+        if vermelho is not None:
+            m["alvo_verm"] = vermelho
+
+    # --- roteiro
+
+    def roteiro(self):
+        yield from self.esperar(0.5)
+        while True:
+            yield from self.chegar()
+            yield from self.tesouro()
+            yield from (self.raja() if random.random() < 0.5 else self.botafogo())
+            yield from self.canhonaco()
+            yield from self.voltar()
+
+    def chegar(self):
+        n, w, k = self.nav, self.w, self.k
+        n.update(x=w + 60 * k, incl=0.0, afunda=0.0, vy=0.0, furos=[], estado="ok")
+        self.galinho, self.frango, self.medalha, self.bau = "vivo", None, None, None
+        self.cara("rindo", (2.7, 0.3), 0.0)
+        x0, alvo, ini = n["x"], w * 0.64, self.t
+        falou = cantou = False
+        while self.t - ini < 5.0:
+            p = self.t - ini
+            n["x"] = x0 + (alvo - x0) * suave(p / 5.0)
+            if p > 1.2 and not falou:
+                self.falar(random.choice(self.CHEGA))
+                falou = True
+            if p > 3.6 and not cantou:
+                self.canta = self.t
+                self.falar("Cocoricó!", "galinho")
+                cantou = True
+            yield
+        self.chapeu = None
+        self.cara("normal", (0.2, 0.2))
+        yield from self.esperar(1.0)
+
+    def tesouro(self):
+        n, k = self.nav, self.k
+        self.bau = dict(x=n["x"] - 56 * k, y=float(self.raia), estado="boiando")
+        yield from self.esperar(1.2)
+        self.cara("rindo", (2.6, 2.6))
+        self.falar(random.choice(self.ACHOU))
+        x0, ini = n["x"], self.t
+        while self.t - ini < 2.5:  # encosta no baú
+            n["x"] = x0 - 12 * k * suave((self.t - ini) / 2.5)
+            yield
+        b = self.bau
+        b["estado"], x0, y0, ini = "subindo", b["x"], b["y"], self.t
+        while self.t - ini < 1.0:
+            q = suave(self.t - ini)
+            dx, dy = self.no_navio(-13, -6)
+            b["x"], b["y"] = x0 + (dx - x0) * q, y0 + (dy - y0) * q - math.sin(q * math.pi) * 10 * k
+            yield
+        b["estado"] = "convés"
+        self.cara("normal", (0.6, 0.6))
+        yield from self.esperar(1.2)
+        b["estado"] = "aberto"
+        ini = self.t
+        while self.t - ini < 1.6:  # o brilho dourado lá de dentro
+            bx, by = self.no_navio(-13, -6 - 4 * self.sg / k)
+            if random.random() < 0.7:
+                self.parts.append([bx + random.uniform(-5, 5) * self.sg, by, random.uniform(-4, 4),
+                                   random.uniform(-26, -12), random.choice((0xFFE680, 0xFFF4C0, 0xF2C230)),
+                                   self.t, random.uniform(0.4, 0.8), "faisca"])
+            yield
+        self.medalha = dict(sobe=self.t)
+        self.cara("assustado", (0.3, 0.3))
+        yield from self.esperar(1.4)
+        self.cara("bravo", (0.5, 0.5), 1.0)
+        self.falar(random.choice(self.PRATA))
+        yield from self.esperar(3.2)
+
+    def raja(self):
+        w, k = self.w, self.k
+        r = self.rival = dict(tipo="raja", x=w + 40 * k)
+        self.cara("assustado", (2.8, 2.8))
+        self.falar(random.choice(self.RAJA))
+        x0, alvo, ini = r["x"], w - 22 * k, self.t
+        while self.t - ini < 3.0:
+            r["x"] = x0 + (alvo - x0) * suave((self.t - ini) / 3.0)
+            yield
+        for i in range(3):
+            ox, oy = r["x"] - 14 * k * 0.6, self.mar + (self.raia - self.mar) * 0.35
+            self.balas_raja.append((ox, oy, random.uniform(-22, 18), random.uniform(-4, 3), self.t))
+            self.onomato.append(("BUM!", ox, oy - 8, self.t, 0x50E070))
+            yield from self.esperar(1.3)
+        self.faixa = ("RAJA 3 X 1 GALO", self.t)
+        self.cara("triste", (0.1, 0.1), 0.0)
+        yield from self.esperar(1.5)
+        x0, ini = r["x"], self.t
+        while self.t - ini < 3.0:
+            r["x"] = x0 + 45 * k * suave((self.t - ini) / 3.0)
+            yield
+        self.rival = None
+
+    def botafogo(self):
+        w, k = self.w, self.k
+        r = self.rival = dict(tipo="bota", x=w + 20 * k, vai=-1)
+        mx, _ = self.no_navio(-13, -6)
+        ini, x0 = self.t, r["x"]
+        while r["x"] > mx:  # a canoa vem remando com dez
+            r["x"] -= w * 0.22 * self.dt
+            yield
+        self.falar("Com 10 mesmo!", "canoa")
+        self.medalha = None
+        r["medalha"], r["vai"] = True, 1
+        self.cara("bravo", (2.8, 0.4), 1.0)
+        self.falar(random.choice(self.BOTA))
+        self.faixa = ("BOTAFOGO 3 X 1 GALO", self.t)
+        while r["x"] < w + 30 * k:
+            r["x"] += w * 0.22 * self.dt
+            yield
+        self.rival = None
+        self.cara("triste", (0.1, 0.1), 0.0)
+        yield from self.esperar(1.5)
+
+    def canhonaco(self):
+        if self.can["x"] < self.can_alvo:
+            yield from self.trazer_canhao()
+        self.falar(random.choice(self.CLAWD_FALA), "clawd")
+        yield from self.esperar(1.5)
+        if random.random() < 0.5:
+            yield from self.atirar(lambda tt: (self.pos_galinho(tt)[0], self.pos_galinho(tt)[1] - 14 * self.k), "erra")
+            while self.bala:
+                yield
+            self.cara("rindo", (2.7, 0.3), 0.0)
+            self.falar(random.choice(self.ERROU))
+            yield from self.esperar(2.4)
+        yield from self.atirar(self.pos_galinho, "galinho")
+        while self.bala:
+            yield
+        yield from self.esperar(2.6)
+        self.falar(random.choice(self.CLAWD_FALA[:3]), "clawd")
+        yield from self.esperar(1.2)
+        yield from self.atirar(lambda tt: self.no_navio(-4, -1, tt), "casco")
+        while self.bala:
+            yield
+        while self.nav["estado"] != "afundado":
+            yield
+
+    def voltar(self):
+        yield from self.esperar(1.5)
+        acao, efeito = random.choice(self.VOLTA)
+        l1 = f"{self.NOME} {acao}"
+        self.caixa = [l1, "", self.t]
+        yield from self.esperar(2.2)
+        self.caixa = [l1, f"{self.NOME} {efeito}", self.t - len(l1) / 30]
+        yield from self.esperar(2.6)
+        self.caixa = None
+
+    # --- atualização
+
+    def colidir(self, b):
+        t, k = self.t, self.k
+        if b["tipo"] == "galinho" and self.galinho == "vivo":
+            gx, gy = self.pos_galinho()
+            if math.hypot(b["x"] - gx, b["y"] - gy) < 4 * self.sg + 1.5:
+                self.galinho = "depenado"
+                self.frango = dict(x=gx, y=gy, vy=-30.0, pousado=False)
+                for _ in range(40):
+                    self.parts.append([gx, gy, random.uniform(-30, 30), random.uniform(-40, 5),
+                                       random.choice((0x1E1E1E, 0xF0F0F0, 0xF0F0F0, 0xD8261C)), t,
+                                       random.uniform(1.5, 3.0), "pena"])
+                self.onomato.append(("PUF!", gx, gy - 6, t, 0xFFFFFF))
+                self.falar("CÓÓÓ!", "galinho")
+                self.cara("triste", (2.8, 2.8))
+                self.falar(random.choice(self.FRANGO_FALA))
+                self.festa_ate = t + 2.0
+                b["tipo"] = "passou"
+        elif b["tipo"] == "casco":
+            lx, ly = self.do_navio(b["x"], b["y"])
+            if -32 <= lx <= 28 and -7 <= ly <= 6:
+                n = self.nav
+                n["furos"] = n["furos"] + [(lx, ly)]
+                n["estado"], n["tremor"], n["desde"] = "afundando", t, t
+                self.onomato.append(("CRASH!", b["x"], b["y"] - 8, t, 0xFFFFFF))
+                for _ in range(24):
+                    self.parts.append([b["x"], b["y"], random.uniform(-30, 30), random.uniform(-40, -5),
+                                       random.choice((0x6A3E1E, 0x4E2C14, 0x8A5428)), t, random.uniform(0.6, 1.2),
+                                       "respingo"])
+                self.placar += 1
+                self.faixa = (f"ARSENAL {self.placar} X 0 GALO", t)
+                self.festa_ate = t + 3.5
+                self.falar(random.choice(self.CLAWD_FESTA), "clawd")
+                self.cara("assustado", (math.pi / 2, math.pi / 2))
+                self.falar(random.choice(self.AFUNDA))
+                self.bala = None
+
+    def atualizar(self, dt):
+        t, k = self.t, self.k
+        self.recuar()
+        self.atualizar_bala(dt)
+        m = self.mau
+        for i in (0, 1):
+            m["bracos"][i] += (m["alvo"][i] - m["bracos"][i]) * min(1.0, dt * 6)
+        m["vermelho"] += (m["alvo_verm"] - m["vermelho"]) * min(1.0, dt * 1.5)
+        if m["vermelho"] > 0.7 and random.random() < 0.5:  # sai fumaça das orelhas
+            mx, my = self.pos_mau()
+            for s in (-1, 1):
+                self.parts.append([mx + s * 0.6 * self.Rm, my - 1.45 * self.Rm, s * random.uniform(4, 10),
+                                   random.uniform(-14, -6), 0xE8E8E8, t, random.uniform(0.6, 1.0), "fumaca"])
+        n = self.nav
+        if n["estado"] == "afundando":
+            p = t - n["desde"]
+            n["incl"] = -0.32 * suave(p / 3.0)
+            n["vy"] += 2.2 * k * dt
+            n["afunda"] += n["vy"] * dt
+            if random.random() < 0.8:
+                x, _ = self.no_navio(random.uniform(-30, 25), 0)
+                self.parts.append([x, self.raia + 3.0, 0.0, random.uniform(-14, -6), 0xBFE6FF, t, 0.5, "bolha"])
+            if self.chapeu is None and p > 1.6:
+                self.chapeu = list(self.pos_mau())
+            if n["afunda"] > 75 * k:
+                n["estado"] = "afundado"
+        if self.chapeu:
+            self.chapeu[1] += (self.raia - 0.9 * self.Rm + math.sin(t * 1.3) * k - self.chapeu[1]) * min(1.0, dt * 2)
+        f = self.frango
+        if f and not f["pousado"]:
+            f["vy"] += self.g * 0.6 * dt
+            f["y"] += f["vy"] * dt
+            dx, dy = self.no_navio(-13, -6)
+            if n["estado"] == "ok" and f["vy"] > 0 and f["y"] >= dy:
+                f["pousado"] = True
+            elif f["y"] >= self.raia + 1:
+                f["y"], f["pousado"], f["boia"] = self.raia + 1.0, True, True
+        elif f and f.get("boia"):
+            f["y"] += (self.raia + 1.0 + math.sin(t * 1.6) * k - f["y"]) * min(1.0, dt * 3)
+        elif f and n["estado"] == "afundando":
+            f["boia"] = True  # o frango sai do navio e fica boiando
+        vivas = []
+        for b in self.balas_raja:
+            x0, y0, lx, ly, t0 = b
+            p = (t - t0) / 0.9
+            if p >= 1:
+                n["furos"] = n["furos"] + [(lx, ly)]
+                n["tremor"] = t
+                n["incl"] += 0.03
+                hx, hy = self.no_navio(lx, ly)
+                self.onomato.append(("POW!", hx, hy - 6, t, 0xFFFFFF))
+                continue
+            vivas.append(b)
+        self.balas_raja = vivas
+
+    # --- desenho
+
+    def draw(self, t, dt, ch, co):
+        self.t, self.dt = t, dt
+        next(self.gen)
+        self.atualizar(dt)
+        w, h, ph, k = self.w, self.h, self.ph, self.k
+        px = self.px
+        px[:] = self.fundo
+        self.desenhar_mar(px)
+        self.desenhar_rival(px, longe=True)
+        antes = px[:]
+        self.desenhar_navio(px)
+        self.afogar(px, antes)
+        self.desenhar_rival(px, longe=False)
+        self.desenhar_bau(px)
+        self.desenhar_flutuantes(px)
+        self.desenhar_canhao(px)
+        self.desenhar_clawd(px)
+        self.desenhar_bala(px)
+        for x0, y0, lx, ly, t0 in self.balas_raja:
+            p = (t - t0) / 0.9
+            x1, y1 = self.no_navio(lx, ly)
+            x, y = x0 + (x1 - x0) * p, y0 + (y1 - y0) * p - math.sin(p * math.pi) * 12 * k
+            for dx in (0, 1):
+                for dy in (0, 1):
+                    if 0 <= int(x) + dx < w and 0 <= int(y) + dy < ph:
+                        px[(int(y) + dy) * w + int(x) + dx] = 0x1C1C20
+        self.desenhar_parts(px, dt)
+        self.desenhar_letreiros(px)
+        pixels_para_celulas(px, w, h, ch, co)
+        for quem, (txt, t0) in list(self.falas.items()):
+            if t - t0 > 3.0:
+                del self.falas[quem]
+                continue
+            if quem == "mau":
+                x, y = self.pos_mau()
+                y -= 2.4 * self.Rm
+            elif quem == "galinho":
+                x, y = self.pos_galinho()
+                x, y = x + 6, y - 5
+            elif quem == "canoa":
+                if not self.rival:
+                    continue
+                x, y = self.rival["x"], self.raia + 6 * k - 4
+            else:
+                x, y = self.clawd_x + 9 * self.sc, self.clawd_y
+            balao(ch, co, w, h, int(x), int(y) // 2 - 1, txt, int((t - t0) * 30))
+        self.desenhar_caixa(ch, co)
+        self.desenhar_plantao(ch, co)
+
+    def desenhar_navio(self, px):
+        w, ph, n, k = self.w, self.ph, self.nav, self.k
+        if n["afunda"] > 80 * k:
+            return
+        x, y, a = self.pos_nav()
+        furos = tuple(n["furos"])
+        pintar_forma(px, w, ph, self.cache, ("navio", round(a, 2), furos),
+                     lambda u, v: navio_em(u, v, furos=furos), x, y, k, a, (-36, 31, -51, 8))
+        # a bandeira alvinegra no topo do mastro, tremulando
+        for lx in range(1, 11):
+            for ly in range(6):
+                fx, fy = self.no_navio(lx * 1.0, -56 + ly + math.sin(self.t * 6 - lx * 0.7) * 0.8 * lx / 10)
+                if 0 <= int(fx) < w and 0 <= int(fy) < ph:
+                    px[int(fy) * w + int(fx)] = CAM_PRETO if (lx // 2) % 2 else CAM_BRANCO
+        mx, my = self.pos_mau()
+        m = self.mau
+        br = (round(m["bracos"][0], 1), round(m["bracos"][1], 1))
+        chapeu = None if self.chapeu else "pirata"
+        verm = round(m["vermelho"], 1)
+        pintar_forma(px, w, ph, self.cache, ("mau", m["cara"], br, chapeu, verm, round(a, 2)),
+                     lambda u, v: maumau_em(u, v, m["cara"], br, chapeu, vermelho=verm), mx, my, self.Rm, a)
+        if self.galinho == "vivo":
+            gx, gy = self.pos_galinho()
+            arte = GALINHO_CANTA if self.t - self.canta < 1.0 else GALINHO
+            s = self.sg
+            for (xx, yy), c in arte_pixels(arte, int(gx - 4 * s), int(gy - 6 * s), s, CORES_GALO_ATL).items():
+                if 0 <= xx < w and 0 <= yy < ph:
+                    px[yy * w + xx] = c
+
+    def afogar(self, px, antes):
+        """O que ficou abaixo da linha d'água aparece esverdeado, por baixo do mar."""
+        w, ph, t = self.w, self.ph, self.t
+        x0, _, _ = self.pos_nav()
+        k = self.k
+        for y in range(self.raia + 1, ph):
+            for x in range(max(0, int(x0 - 50 * k)), min(w, int(x0 + 45 * k))):
+                if y < self.raia + 1 + math.sin(x * 0.4 + t * 2):
+                    continue
+                i = y * w + x
+                if px[i] != antes[i]:
+                    px[i] = misturar(px[i], antes[i], 0.65 + 0.3 * clamp((y - self.raia) / (14 * k)))
+
+    def desenhar_bau(self, px):
+        b, w, ph = self.bau, self.w, self.ph
+        if not b or self.nav["estado"] != "ok" and b["estado"] != "boiando":
+            return
+        s = self.sg
+        if b["estado"] in ("convés", "aberto"):
+            b["x"], b["y"] = self.no_navio(-13, -6)
+        bob = math.sin(self.t * 1.6) * self.k if b["estado"] == "boiando" else 0
+        arte = BAU_ABERTO if b["estado"] == "aberto" else BAU
+        x0, y0 = int(b["x"] - 6 * s), int(b["y"] + bob - len(arte) * s + (2 * s if b["estado"] == "boiando" else 0))
+        for (xx, yy), c in arte_pixels(arte, x0, y0, s, CORES_BAU).items():
+            if 0 <= xx < w and 0 <= yy < ph:
+                px[yy * w + xx] = c
+        if b["estado"] == "boiando":
+            letreiro(px, w, ph, "TACA", b["x"], y0 - 5, 1, 0xF2C230, 0x3A2410)
+        m = self.medalha
+        if m and "sobe" in m:
+            q = suave((self.t - m["sobe"]) / 1.0)
+            mx = b["x"]
+            my = y0 - q * 3 * self.k + math.sin(self.t * 2) * self.k * q
+            m["x"], m["y"] = mx, my
+            larg = abs(math.cos(self.t * 3))  # girando
+            for (xx, yy), c in arte_pixels(MEDALHA, 0, 0, s, CORES_MEDALHA).items():
+                x = int(mx + (xx - 3.5 * s) * max(0.2, larg))
+                y = int(my - 10 * s + yy)
+                if 0 <= x < w and 0 <= y < ph:
+                    px[y * w + x] = c
+
+    def desenhar_flutuantes(self, px):
+        w, ph, s, k = self.w, self.ph, self.sg, self.k
+        f = self.frango
+        if f:
+            if f["pousado"] and not f.get("boia") and self.nav["estado"] == "ok":
+                f["x"], f["y"] = self.no_navio(-13, -6)
+            if f["pousado"] or f.get("boia"):
+                for (xx, yy), c in arte_pixels(FRANGO, int(f["x"] - 7 * s), int(f["y"] - 9 * s), s, CORES_FRANGO).items():
+                    if 0 <= xx < w and 0 <= yy < ph:
+                        px[yy * w + xx] = c
+                if random.random() < 0.15:
+                    self.parts.append([f["x"] + random.uniform(-4, 4) * s, f["y"] - 9 * s, 0.0, -6.0, 0xD8D8D8,
+                                       self.t, 1.0, "fumaca"])
+            else:  # caindo, depenadinho
+                for dx in range(-2 * s, 2 * s + 1):
+                    for dy in range(-2 * s, 2 * s + 1):
+                        if dx * dx + dy * dy <= 4 * s * s and 0 <= int(f["x"]) + dx < w and 0 <= int(f["y"]) + dy < ph:
+                            px[(int(f["y"]) + dy) * w + int(f["x"]) + dx] = 0xF4B8A0
+        if self.chapeu:
+            cx, cy = self.chapeu
+            pintar_forma(px, w, ph, self.cache, "chapeu",
+                         lambda u, v: maumau_em(u, v, chapeu="pirata") if v < -1.76 else None,
+                         cx, cy + 1.6 * self.Rm, self.Rm, 0.0, (-0.9, 0.9, -2.35, -1.7))
+
+    def desenhar_rival(self, px, longe):
+        r = self.rival
+        if not r:
+            return
+        w, ph, k, t = self.w, self.ph, self.k, self.t
+        if r["tipo"] == "raja" and longe:
+            kr = k * 0.6
+            y = self.mar + (self.raia - self.mar) * 0.35 + math.sin(t * 1.1) * 0.6
+            pintar_forma(px, w, ph, self.cache, ("raja",),
+                         lambda u, v: navio_em(u, v, (0x1E8A3C, 0xF0F0F0), 0x1E8A3C, galo=False), r["x"], y, kr, 0.0,
+                         (-36, 31, -51, 8))
+            letreiro(px, w, ph, "RAJA", r["x"], y - 32 * kr, 1, 0xFFFFFF)
+            for ly in range(int(4 * kr) + 1):  # a bandeira vermelha com a estrela verde
+                for lx in range(int(7 * kr) + 1):
+                    xx, yy = int(r["x"] + lx), int(y - 56 * kr + ly + math.sin(t * 6 - lx * 0.7) * 0.6)
+                    if 0 <= xx < w and 0 <= yy < ph:
+                        px[yy * w + xx] = 0x1E8A3C if (lx - 3) ** 2 + (ly - 2) ** 2 <= 1 else 0xC8281C
+        elif r["tipo"] == "bota" and not longe:
+            y = int(self.raia + 9 * k)
+            x0 = int(r["x"] - 21 * k)
+            L = int(42 * k)
+            for xx in range(L):
+                curva = int(((xx - L / 2) / (L / 2)) ** 4 * 2)
+                for yy in range(curva, int(3 * k) + 1):
+                    x, yp = x0 + xx, y + yy - 2
+                    if 0 <= x < w and 0 <= yp < ph:
+                        px[yp * w + x] = 0xF0F0F0 if yy == curva else 0x1A1A1A
+            for i in range(10):  # os dez remadores
+                rx = int(x0 + L * (i + 1) / 12)
+                for yy in range(5):
+                    for dx in (0, 1):
+                        if 0 <= rx + dx < w and 0 <= y - 3 - yy < ph:
+                            px[(y - 3 - yy) * w + rx + dx] = PELE_MAU if yy >= 3 else (CAM_PRETO if i % 2 else CAM_BRANCO)
+                fase = math.sin(t * 9 + i * 0.3)
+                for kk in range(int(4 * k)):
+                    ox, oy = int(rx - r["vai"] * fase * kk * 0.6), int(y - 3 + kk)
+                    if 0 <= ox < w and 0 <= oy < ph:
+                        px[oy * w + ox] = 0x8A6A3A
+            mx = x0 + (L if r["vai"] < 0 else 0)
+            for yy in range(int(9 * k)):
+                if 0 <= mx < w and 0 <= y - 3 - yy < ph:
+                    px[(y - 3 - yy) * w + mx] = 0xD0D0D0
+            for ly in range(int(5 * k)):  # a estrela solitária
+                for lx in range(int(7 * k)):
+                    xx, yy = mx + lx * (1 if r["vai"] < 0 else -1), int(y - 3 - 9 * k + ly + math.sin(t * 6 - lx) * 0.5)
+                    estrela = abs(lx - 3.5 * k) + abs(ly - 2.5 * k) * 1.6 < 1.8 * k
+                    if 0 <= xx < w and 0 <= yy < ph:
+                        px[yy * w + xx] = 0xFFFFFF if estrela else 0x111111
+            if r.get("medalha"):
+                for (xx, yy), c in arte_pixels(MEDALHA, int(r["x"] - 3 * self.sg), int(y - 16 * k), self.sg,
+                                               CORES_MEDALHA).items():
+                    if 0 <= xx < w and 0 <= yy < ph:
+                        px[yy * w + xx] = c
+
+    def manchetes(self):
+        n = self.placar
+        m = ["Galo chega a mais uma final; torcida já separa a medalha de prata",
+             "Raja Casablanca manda lembranças",
+             "Botafogo confirma: com 10 dá pra ganhar do Galo",
+             "Dívida do Galo bate recorde; navio novo foi parcelado em 48x",
+             "Frango assado é eleito o melhor jogador do Galo na temporada",
+             "Barba Ruiva garante: ano que vem é nosso",
+             "Torcida do Cruzeiro acompanha o naufrágio com pipoca"]
+        if n:
+            m.insert(1, f"Barba Ruiva afunda pela {n}ª vez" + (" e ninguém se surpreende" if n > 1 else ""))
+        return m
+
+
+CAMISA_CRUZ = ["BB.....BB",
+               "BBBBwBBBB",
+               ".BBBBBBB.",
+               "..BBsBB..",
+               "..BBBBB..",
+               "..BsBBB..",
+               "..BBBBs..",
+               "..BBBBB.."]
+CORES_CRUZ = {"B": 0x1F3F9A, "w": 0xFFFFFF, "s": 0xFFFFFF}
+BOLETO = ["wwwwwwwwwww",
+          "wkkkkwwwwww",
+          "wwwwwwwrrrw",
+          "wgggggwwwww",
+          "wggggwwwwww",
+          "wwwwwwwwwww",
+          "wkwkkwkwkkw",
+          "wkwkkwkwkkw"]
+CORES_BOLETO = {"w": 0xF4F4EC, "k": 0x1A1A1A, "g": 0x9A9A9A, "r": 0xD02020}
+
+
+class CoisaRuim(ComCanhao, Cena):
+    """Meia-noite no estádio do Galo: a torcida de capuz faz o ritual e invoca o Coisa Ruim (o Maumau, de chifre
+    e olho em brasa), que sobe do pentagrama em T-pose, ainda sem textura. Pedem uma taça; ele faz o feitiço e
+    sai medalha de prata, frango assado, camisa do Cruzeiro, boleto da dívida... até o Clawd chegar com o balde
+    de água benta."""
+    combinavel = False
+    peso = 0.8
+    duracao = (55, 75)
+    NOME = "COISA RUIM"
+    REZA = ["Ó Coisa Ruim...", "Traz uma taça pra nós!", "Qualquer uma!", "Pelo amor de Deus, uma taça!"]
+    SURGE = ["QUEM OUSA INVOCAR O COISA RUIM?", "O BARBA RUIVA CHEGOU!", "QUEM ME CHAMOU?"]
+    PEDIDO = ["Queremos um título!", "Uma taça, por favor!", "Só uma tacinha!"]
+    FEITICO = ["ABRACADABRA!", "Sai, taça!", "Taça, apareça!", "Pelos poderes da barba ruiva!"]
+    OBJETOS = [("MEDALHA", "uma MEDALHA DE PRATA."), ("FRANGO", "um FRANGO ASSADO."),
+               ("CAMISA_CRUZ", "uma camisa do CRUZEIRO."), ("BOLETO", "o BOLETO da dívida.")]
+    CHORO = ["De novo?!", "Ah não...", "Era pra ser uma taça!", "Pede de novo!", "Isso aí é nosso mesmo."]
+    DESCULPA = ["Peraí, essa não valeu.", "Calma, tô aquecendo.", "Deve ser o VAR.", "Deixa eu tentar de novo."]
+    CLAWD_FALA = ["Volta pro inferno, Coisa Ruim!", "Água benta do Emirates!", "Up the Arsenal!"]
+    FOGE = ["É O CLAWD!", "Corre!", "Sujou!"]
+
+    def iniciar(self):
+        w, h = self.w, self.h
+        ph = self.ph = 2 * h
+        self.k = max(0.6, min(w / 174, ph / 98))
+        self.c = self.k
+        self.sc = max(1, round(self.k))
+        self.sg = max(1, round(self.k))
+        self.campo = int(ph * 0.6)
+        self.cx = w * 0.5
+        self.pe = self.campo + (ph - self.campo) * 0.45   # o centro do pentagrama, onde ficam os pés
+        self.rx, self.ry = min(w * 0.2, 46 * self.k), min(w * 0.2, 46 * self.k) * 0.24
+        self.Rm = 7.0 * self.k
+        self.cache = {}
+        self.fundo = self.montar_fundo()
+        self.px = [0] * (w * ph)
+        self.t = self.dt = 0.0
+        self.parts = []
+        self.falas = {}
+        self.caixa = None
+        self.onomato = []
+        self.faixa = None
+        self.festa_ate = -10.0
+        self.placar = 0
+        self.brasa = 0.0         # o quanto o pentagrama está aceso
+        self.flash = -10.0
+        self.mau = None          # dict(sobe, textura, cara, bracos, brilho, glitch)
+        self.objetos = []        # (arte, cores, x)
+        self.cult = []
+        for i, (fx, fy) in enumerate(((-1.25, 0.1), (-0.8, -1.1), (0.8, -1.1), (1.25, 0.1))):
+            self.cult.append(dict(x=self.cx + fx * self.rx, y=self.pe + fy * self.ry * 1.6, casa=self.cx + fx * self.rx,
+                                  fase=i * 1.3, maos=0.0, lado=-1 if fx < 0 else 1))
+        self.clawd = None        # dict(x, passo, balde)
+        self.gen = self.roteiro()
+
+    # --- cenário
+
+    def montar_fundo(self):
+        w, ph, campo = self.w, self.ph, self.campo
+        px = [0] * (w * ph)
+        topo_arq = int(campo - ph * 0.2)
+        for y in range(campo):
+            base = misturar(0x05060E, 0x1A1C34, y / campo)
+            for x in range(w):
+                px[y * w + x] = base
+        lx, ly, lr = w * 0.82, ph * 0.13, max(3.0, ph * 0.07)
+        for y in range(int(ly - lr * 2), int(ly + lr * 2) + 1):
+            for x in range(int(lx - lr * 2), int(lx + lr * 2) + 1):
+                if 0 <= x < w and 0 <= y < campo:
+                    d = math.hypot(x - lx, y - ly)
+                    i = y * w + x
+                    if d <= lr:
+                        px[i] = 0xC8C4B0 if math.sin(x * 0.9) + math.sin(y * 1.3) > 1.2 else 0xEEEAD8
+                    elif d <= lr * 2:
+                        px[i] = misturar(px[i], 0x3A3C50, 0.6 * (1 - (d - lr) / lr))
+        self.estrelas = [(random.randrange(w), random.randrange(max(1, topo_arq - 2)), random.uniform(0, 6))
+                         for _ in range(w * ph // 160)]
+        # a arquibancada alvinegra, vazia, e as torres de refletor
+        for x in range(w):
+            curva = topo_arq + abs(x - w / 2) / (w / 2) * ph * 0.04
+            for y in range(int(curva), campo):
+                fila = (y - int(curva)) % 3
+                px[y * w + x] = 0x0C0C10 if fila == 0 else (0x2A2A30 if (x // 3) % 2 else 0x5A5A60)
+        self.refletores = []
+        for tx in (int(w * 0.06), int(w * 0.94)):
+            topo = int(topo_arq - ph * 0.16)
+            for y in range(topo, campo):
+                for xx in (tx, tx + 1):
+                    px[y * w + xx] = 0x3A3A44
+            self.refletores.append((tx, topo))
+        for y in range(campo, ph):
+            f = (y - campo) / max(1, ph - campo)
+            for x in range(w):
+                faixa = int((x - w / 2) / (w * 0.08) * (0.6 + f)) % 2
+                px[y * w + x] = escala(0x1E5A2A if faixa else 0x18502A, 0.45 + 0.4 * f)
+        return px
+
+    # --- o Coisa Ruim
+
+    def maumau_cr(self, u, v, cara, bracos, brilho, textura):
+        c = maumau_em(u, v, cara, bracos, None, True, brilho)
+        if c is None or v < textura:
+            return c
+        return 0xFF00FF if (int((u + 9) * 2.6) + int((v + 9) * 2.6)) % 2 else 0x101010  # sem textura
+
+    def pos_mau(self):
+        m = self.mau
+        return self.cx, self.pe - 1.78 * self.Rm + (1 - m["sobe"]) * 4.3 * self.Rm
+
+    def falar(self, txt, quem="mau"):
+        self.falas[quem] = (txt, self.t)
+
+    # --- roteiro
+
+    def roteiro(self):
+        yield from self.esperar(0.5)
+        while True:
+            yield from self.ritual()
+            yield from self.invocar()
+            for i in range(random.choice((2, 3, 3))):
+                yield from self.feitico(i)
+            yield from self.exorcismo()
+
+    def ritual(self):
+        self.objetos = []
+        ini = self.t
+        while self.t - ini < 5.5:
+            p = self.t - ini
+            self.brasa = clamp(p / 5.0) * 0.8
+            for c in self.cult:
+                c["maos"] = 0.5 + 0.5 * math.sin(self.t * 3 + c["fase"])
+            if int(p / 1.6) != int((p - self.dt) / 1.6):
+                c = random.choice(self.cult)
+                self.falar(random.choice(self.REZA), id(c))
+            yield
+
+    def invocar(self):
+        self.flash = self.t
+        self.brasa = 1.0
+        self.onomato.append(("KABRUM!", self.cx, self.ph * 0.18, self.t, 0xFF4030))
+        self.mau = dict(sobe=0.0, textura=-3.0, cara="normal", bracos=(math.pi / 2, math.pi / 2), brilho=False,
+                        glitch=True)
+        m, ini = self.mau, self.t
+        while self.t - ini < 2.6:
+            m["sobe"] = suave((self.t - ini) / 2.6)
+            for _ in range(2):
+                self.parts.append([self.cx + random.uniform(-1, 1) * self.rx * 0.5, self.pe, random.uniform(-6, 6),
+                                   random.uniform(-20, -8), random.choice((0x8A2020, 0x5A1414, 0x3A3A3A)), self.t,
+                                   random.uniform(1.0, 2.0), "fumaca"])
+            yield
+        self.falar("CARREGANDO TEXTURAS...", "sistema")
+        yield from self.esperar(1.2)
+        ini = self.t
+        while self.t - ini < 1.6:
+            m["textura"] = -2.4 + 4.4 * suave((self.t - ini) / 1.6)
+            yield
+        m["textura"], m["glitch"], m["brilho"], m["cara"] = 3.0, False, True, "rindo"
+        m["bracos"] = (2.7, 2.7)
+        self.falar(random.choice(self.SURGE))
+        yield from self.esperar(2.6)
+        self.falar(random.choice(self.PEDIDO), id(random.choice(self.cult)))
+        for c in self.cult:
+            c["maos"] = 1.0
+        yield from self.esperar(2.2)
+        m["cara"], m["bracos"] = "normal", (0.3, 0.3)
+        self.falar("Deixa comigo.")
+        yield from self.esperar(1.6)
+
+    def feitico(self, i):
+        m = self.mau
+        m["bracos"], m["cara"] = (2.8, 2.8), "rindo"
+        self.falar(random.choice(self.FEITICO))
+        ini = self.t
+        while self.t - ini < 1.6:
+            mx, my = self.pos_mau()
+            for s in (-1, 1):
+                hx = mx + s * (0.56 + 1.06 * math.sin(2.8)) * self.Rm
+                hy = my + (-0.66 + 1.06 * math.cos(2.8)) * self.Rm
+                self.parts.append([hx, hy, random.uniform(-10, 10), random.uniform(-14, 4),
+                                   random.choice((0xFF4030, 0xFFB040, 0xFFF0A0)), self.t, random.uniform(0.3, 0.6),
+                                   "faisca"])
+            yield
+        lado = (-1, 1, -1)[i]
+        x = self.cx + lado * (0.45 + 0.12 * i) * self.rx + (8 if lado > 0 else -8) * self.k
+        nome, frase = self.OBJETOS[(self.ciclo_obj + i) % len(self.OBJETOS)]
+        self.onomato.append(("PUF!", x, self.pe - 10 * self.k, self.t, 0xFFFFFF))
+        for _ in range(30):
+            self.parts.append([x, self.pe - 3 * self.k, random.uniform(-16, 16), random.uniform(-14, 2), 0xC8C8D0,
+                               self.t, random.uniform(0.8, 1.4), "fumaca"])
+        arte, cores = {"MEDALHA": (MEDALHA, CORES_MEDALHA), "FRANGO": (FRANGO, CORES_FRANGO),
+                       "CAMISA_CRUZ": (CAMISA_CRUZ, CORES_CRUZ), "BOLETO": (BOLETO, CORES_BOLETO)}[nome]
+        self.objetos.append((arte, cores, x))
+        m["bracos"], m["cara"] = (0.3, 0.3), "assustado"
+        l1 = f"{self.NOME} usou INVOCAR TAÇA!"
+        self.caixa = [l1, f"Saiu {frase}", self.t]
+        yield from self.esperar(2.8)
+        self.caixa = None
+        for c in self.cult:
+            c["maos"] = 0.0
+        self.falar(random.choice(self.CHORO), id(random.choice(self.cult)))
+        yield from self.esperar(1.6)
+        m["cara"] = "bravo"
+        self.falar(random.choice(self.DESCULPA))
+        yield from self.esperar(2.0)
+
+    def exorcismo(self):
+        k, s = self.k, self.sc
+        self.clawd = dict(x=-20.0 * s, passo=False, balde=0.0)
+        cl = self.clawd
+        alvo = self.cx - self.rx * 1.05 - 18 * s
+        fugiu = False
+        while cl["x"] < alvo:
+            cl["x"] = min(alvo, cl["x"] + 16 * k * self.dt)
+            cl["passo"] = int(self.t * 6) % 2 == 0
+            if not fugiu and cl["x"] > -6 * s:
+                self.falar(random.choice(self.FOGE), id(self.cult[0]))
+                fugiu = True
+            yield
+        cl["passo"] = False
+        self.falar(random.choice(self.CLAWD_FALA), "clawd")
+        yield from self.esperar(1.2)
+        ini = self.t
+        while self.t - ini < 0.9:  # joga a água benta
+            cl["balde"] = suave((self.t - ini) / 0.4)
+            bx, by = cl["x"] + 19 * s, self.pe - 8 * s
+            mx, my = self.pos_mau()
+            T = 0.7
+            for _ in range(4):
+                vx = (mx - bx) / T + random.uniform(-8, 8)
+                vy = (my - by - 0.5 * 90 * T * T) / T + random.uniform(-8, 8)
+                self.parts.append([bx, by, vx, vy, random.choice((0x6AB8FF, 0xA8D8FF, 0xFFFFFF)), self.t, T, "agua"])
+            yield
+        m = self.mau
+        m["cara"], m["brilho"], m["bracos"] = "assustado", False, (math.pi / 2, math.pi / 2)
+        self.onomato.append(("TSSSSS!", self.cx, self.pe - 5 * self.Rm, self.t, 0xFFFFFF))
+        self.falar("AAAAARGH!")
+        self.placar += 1
+        self.faixa = (f"ARSENAL {self.placar} X 0 COISA RUIM", self.t)
+        self.festa_ate = self.t + 4.0
+        ini = self.t
+        while self.t - ini < 1.4:
+            mx, my = self.pos_mau()
+            self.parts.append([mx + random.uniform(-1, 1) * self.Rm, my + random.uniform(-2, 1) * self.Rm, 0.0,
+                               random.uniform(-16, -8), 0xF0F0F0, self.t, 1.2, "fumaca"])
+            m["textura"] = 1.8 - 4.2 * suave((self.t - ini) / 1.4)
+            yield
+        m["glitch"] = True
+        ini = self.t
+        while self.t - ini < 2.0:
+            m["sobe"] = 1 - suave((self.t - ini) / 2.0)
+            self.brasa = 1 - suave((self.t - ini) / 2.0)
+            yield
+        self.mau = None
+        cl["balde"] = 0.0
+        self.falar("Gooooner!", "clawd")
+        yield from self.esperar(1.5)
+        while cl["x"] < self.w + 2:  # vai embora e a torcida volta de fininho
+            cl["x"] += 16 * k * self.dt
+            cl["passo"] = int(self.t * 6) % 2 == 0
+            yield
+        self.clawd = None
+        self.ciclo_obj += 1
+        while any(abs(c["x"] - c["casa"]) > 1 for c in self.cult):
+            yield
+        yield from self.esperar(1.0)
+
+    ciclo_obj = 0
+
+    # --- atualização e desenho
+
+    def atualizar(self, dt):
+        cl = self.clawd
+        for c in self.cult:
+            if cl and cl["x"] > -6 * self.sc:  # foge pro lado de fora
+                c["x"] += c["lado"] * self.w * 0.35 * dt
+                c["maos"] = 1.0
+            elif abs(c["x"] - c["casa"]) > 0.5:
+                c["x"] += max(-self.w * 0.12 * dt, min(self.w * 0.12 * dt, c["casa"] - c["x"]))
+
+    def draw(self, t, dt, ch, co):
+        self.t, self.dt = t, dt
+        next(self.gen)
+        self.atualizar(dt)
+        w, h, ph, k = self.w, self.h, self.ph, self.k
+        px = self.px
+        px[:] = self.fundo
+        for x, y, f in self.estrelas:
+            if math.sin(t * 2 + f * 7) > -0.3:
+                px[y * w + x] = 0x9A9AB8 if math.sin(t * 3 + f) < 0.8 else 0xFFFFFF
+        for i, (tx, ty) in enumerate(self.refletores):  # um refletor pisca, assombrado
+            aceso = i == 0 or (self.mau and math.sin(t * 23) > 0.2) or math.sin(t * 0.7) > 0.95
+            for dx in range(-2, 4):
+                for dy in range(-1, 2):
+                    if 0 <= tx + dx < w:
+                        px[(ty + dy) * w + tx + dx] = 0xFFF4C0 if aceso else 0x4A4A40
+        self.desenhar_pentagrama(px)
+        cultos = sorted(self.cult, key=lambda c: c["y"])
+        for c in cultos:
+            if c["y"] < self.pe:
+                self.desenhar_cultista(px, c)
+        self.desenhar_mau(px)
+        for arte, cores, x in self.objetos:
+            s = self.sg
+            for (xx, yy), cc in arte_pixels(arte, int(x - len(arte[0]) * s / 2), int(self.pe + 2 * k - len(arte) * s), s,
+                                            cores).items():
+                if 0 <= xx < w and 0 <= yy < ph:
+                    px[yy * w + xx] = cc
+        for c in cultos:
+            if c["y"] >= self.pe:
+                self.desenhar_cultista(px, c)
+        cl = self.clawd
+        if cl:
+            s = self.sc
+            pulo = int(abs(math.sin(t * 7)) * 4 * s) if t < self.festa_ate else 0
+            self.clawd_x, self.clawd_y = int(cl["x"]), int(self.pe + 2 * k - 10 * s - pulo)
+            pintar_clawd(px, w, ph, self.clawd_x, self.clawd_y, s, t, cl["passo"])
+            self.desenhar_balde(px, cl)
+        self.desenhar_parts(px, dt)
+        p = t - self.flash
+        if p < 0.12 or 0.2 < p < 0.28:
+            for i in range(len(px)):
+                px[i] = misturar(px[i], 0xFFE8E8, 0.6)
+        self.desenhar_letreiros(px)
+        pixels_para_celulas(px, w, h, ch, co)
+        for quem, (txt, t0) in list(self.falas.items()):
+            if t - t0 > 3.0:
+                del self.falas[quem]
+                continue
+            if quem == "mau":
+                if not self.mau:
+                    continue
+                x, y = self.pos_mau()
+                y -= 2.5 * self.Rm
+            elif quem == "sistema":
+                x, y = self.cx, self.campo - 0.30 * self.ph
+            elif quem == "clawd":
+                if not self.clawd:
+                    continue
+                x, y = self.clawd_x + 9 * self.sc, self.clawd_y
+            else:
+                c = next((c for c in self.cult if id(c) == quem), None)
+                if c is None:
+                    continue
+                x, y = c["x"], c["y"] - 13 * k
+            balao(ch, co, w, h, int(x), int(y) // 2 - 1, txt, int((t - t0) * 30))
+        self.desenhar_caixa(ch, co)
+        self.desenhar_plantao(ch, co)
+
+    def desenhar_pentagrama(self, px):
+        w, ph, t = self.w, self.ph, self.t
+        b = self.brasa
+        if b <= 0.01:
+            return
+        cor = misturar(0x3A1010, 0xFF3020, b * (0.8 + 0.2 * math.sin(t * 9)))
+        pts = [(self.cx + math.cos(-math.pi / 2 + i * 2 * math.pi / 5) * self.rx * 0.92,
+                self.pe + math.sin(-math.pi / 2 + i * 2 * math.pi / 5) * self.ry * 0.92) for i in range(5)]
+        n = int(self.rx * 7)
+        for i in range(n):
+            a = i / n * 2 * math.pi
+            x, y = int(self.cx + math.cos(a) * self.rx), int(self.pe + math.sin(a) * self.ry)
+            if 0 <= x < w and 0 <= y < ph:
+                px[y * w + x] = cor
+        for i in range(5):
+            (x0, y0), (x1, y1) = pts[i], pts[(i + 2) % 5]
+            m = int(abs(x1 - x0) + abs(y1 - y0)) + 1
+            for j in range(m + 1):
+                x, y = int(x0 + (x1 - x0) * j / m), int(y0 + (y1 - y0) * j / m)
+                if 0 <= x < w and 0 <= y < ph:
+                    px[y * w + x] = cor
+        for x, y in pts:  # velas nas pontas
+            x, y = int(x), int(y)
+            for dy in range(3):
+                if 0 <= y - dy < ph:
+                    px[(y - dy) * w + x] = 0xE8E0C8
+            if 0 <= y - 3 < ph:
+                px[(y - 3) * w + x] = 0xFFE070 if math.sin(t * 13 + x) > -0.5 else 0xFF8030
+                if y - 4 >= 0 and math.sin(t * 7 + x) > 0:
+                    px[(y - 4) * w + x] = 0xFF8030
+
+    def desenhar_cultista(self, px, c):
+        """Torcedor de capuz alvinegro, com os olhinhos brilhando lá dentro."""
+        w, ph, k, t = self.w, self.ph, self.k, self.t
+        H = 12 * k
+        x0, y0 = c["x"], c["y"]
+        for yy in range(int(y0 - H), int(y0) + 1):
+            q = (yy - (y0 - H)) / H
+            larg = 1.6 * k + q * 3.2 * k if q > 0.32 else 1.8 * k * math.sqrt(max(0.0, q / 0.32))
+            balanco = math.sin(t * 2 + c["fase"]) * 0.6 * q
+            for xx in range(int(x0 - larg + balanco), int(x0 + larg + balanco) + 1):
+                if 0 <= xx < w and 0 <= yy < ph:
+                    if q <= 0.32:
+                        cor = 0x101012
+                        if 0.16 < q < 0.26 and abs(abs(xx - x0) - 0.7 * k) < 0.6:
+                            cor = 0xFFD040 if self.mau else 0xC03020
+                    else:
+                        cor = CAM_BRANCO if int((xx - x0 + 20) / max(1.0, 1.2 * k)) % 2 else CAM_PRETO
+                        cor = escala(cor, 0.55 + 0.25 * q)
+                    px[yy * w + xx] = cor
+        for s in (-1, 1):  # braços pra cima ou pra baixo
+            ang = 0.4 + 2.3 * c["maos"]
+            for kk in range(int(4 * k)):
+                xx = int(x0 + s * (2.2 * k + math.sin(ang) * kk))
+                yy = int(y0 - H * 0.62 + math.cos(ang) * kk)
+                if 0 <= xx < w and 0 <= yy < ph:
+                    px[yy * w + xx] = 0x2A2A2E if kk < 3 * k else PELE_MAU
+
+    def desenhar_mau(self, px):
+        m = self.mau
+        if not m:
+            return
+        w, ph, R = self.w, self.ph, self.Rm
+        x, y = self.pos_mau()
+        tex = round(m["textura"], 1)
+        chave = ("cr", m["cara"], m["bracos"], m["brilho"], tex)
+        antes = px[:] if m["sobe"] < 1 else None
+        pintar_forma(px, w, ph, self.cache, chave,
+                     lambda u, v: self.maumau_cr(u, v, m["cara"], m["bracos"], m["brilho"], tex), x, y, R)
+        x0, x1 = max(0, int(x - 1.9 * R)), min(w, int(x + 1.9 * R) + 1)
+        if antes:  # o que ainda está debaixo da terra não aparece
+            for yy in range(int(self.pe) + 1, min(ph, int(y + 1.9 * R) + 1)):
+                px[yy * w + x0:yy * w + x1] = antes[yy * w + x0:yy * w + x1]
+        if m["glitch"] and random.random() < 0.6:  # faixas tortas, de jogo bugado
+            for _ in range(2):
+                yy = random.randint(int(y - 2.4 * R), int(y + 1.8 * R))
+                d = random.choice((-3, -2, 2, 3))
+                for linha in range(yy, min(ph, yy + random.randint(1, 3))):
+                    if 0 <= linha:
+                        seg = px[linha * w + x0:linha * w + x1]
+                        px[linha * w + x0:linha * w + x1] = seg[-d:] + seg[:-d]
+
+    def desenhar_balde(self, px, cl):
+        w, ph, s = self.w, self.ph, self.sc
+        b = cl["balde"]
+        bx, by = cl["x"] + 16 * s, self.pe + 2 * self.k - 7 * s
+        for yy in range(int(4 * s)):
+            for xx in range(int(5 * s)):
+                lx, ly = xx - 2.5 * s, yy - 2 * s
+                rx = lx * math.cos(b) - ly * math.sin(b)
+                ry = lx * math.sin(b) + ly * math.cos(b)
+                X, Y = int(bx + rx), int(by + ry)
+                if 0 <= X < w and 0 <= Y < ph:
+                    px[Y * w + X] = 0x6AB8FF if yy == 0 and b < 0.3 else (0x9AA0A8 if xx % 3 else 0x7A8088)
+
+    def manchetes(self):
+        n = self.placar
+        m = ["Torcida do Galo faz ritual no meio do campo; pentagrama fica pior que o gramado",
+             "Coisa Ruim promete taça, entrega medalha de prata",
+             "Padre se recusa a benzer o estádio: 'não tem reza que resolva'",
+             "Boleto da dívida aparece no meio do campo; ninguém quer pagar",
+             "Cruzeiro manda abraço", "Coisa Ruim é eleito o melhor reforço da temporada"]
+        if n:
+            m.insert(1, f"Coisa Ruim volta pro inferno pela {n}ª vez")
+        return m
+
+
+GALO_CORRE = (GALO_ATL[:16] + ["......Y...Y.........", ".....Y.....Y........", "....YY.....YY......."],
+              GALO_ATL[:16] + [".......YY...........", ".......Y.Y..........", "......YY.YY........."])
+CORES_DEPENADO = {**CORES_GALO_ATL, "N": 0xF4B8A0, "n": 0xE09A88, "L": 0xF8D0C0}
+OVO = ["..ww..",
+       ".wwww.",
+       "wwkwww",
+       "wwwwkw",
+       "wkwwww",
+       "wwwwww",
+       ".wwww."]
+CORES_OVO = {"w": 0xF4F0E4, "k": 0x1A1A1A}
+
+
+class GaloDoido(ComCanhao, Cena):
+    """O Maumau montado num galo alvinegro gigante, vindo tirar satisfação com o Arsenal (\"quem atirou no meu
+    primo?\"). O Clawd responde com o canhão: o galo pula a primeira, mas a segunda depena, e a terceira assa.
+    O Maumau come o frango, cai um ovo do céu e... o OVO está evoluindo!"""
+    combinavel = False
+    peso = 0.8
+    duracao = (55, 75)
+    NOME = "MAUMAU"
+    GRITO = ["AVANTE, GALO!", "Quem atirou no meu primo?!", "Hoje o Arsenal vai ver!", "GALOOO!",
+             "Segura esse galo doido!"]
+    PULOU = ["Errou! Mira de cruzeirense!", "Pulou! Galo é ligeiro!", "Passou por baixo!"]
+    CAIU = ["MEU GALO!", "Depenaram o galo!", "Isso foi falta!"]
+    ASSOU = ["Virou frango assado...", "NÃÃÃO!", "Era um galo tão bonito..."]
+    COMENDO = ["Pelo menos tá bem temperado.", "Hmm... tá bom, viu?", "Já que tá aqui..."]
+    CLAWD_FALA = ["Up the Arsenal!", "Vem, galinho, vem...", "Aqui não, galo!", "Fica paradinho aí..."]
+    CLAWD_FESTA = ["Gooooner!", "Frango assado no ponto!", "Cocoricó é o caramba!"]
+
+    def iniciar(self):
+        w, h = self.w, self.h
+        ph = self.ph = 2 * h
+        self.k = max(0.6, min(w / 174, ph / 98))
+        self.c = self.k
+        self.sc = max(1, round(self.k))
+        self.gs = max(2, round(2.1 * self.k))   # escala do galo gigante
+        self.g = ph * 1.0
+        self.chao = ph - max(5, int(ph * 0.07))
+        self.Rm = 6.4 * self.k
+        self.cache = {}
+        self.fundo = self.montar_fundo()
+        self.px = [0] * (w * ph)
+        self.t = self.dt = 0.0
+        self.can_alvo = 13 * self.c + 18 * self.sc + 2
+        self.can = dict(x=-30 * self.c, ang=-0.25, giro=0.0, recuo=0.0)
+        self.passo = False
+        self.bala = None
+        self.disparo = -10.0
+        self.parts = []
+        self.falas = {}
+        self.caixa = None
+        self.onomato = []
+        self.faixa = None
+        self.festa_ate = -10.0
+        self.placar = 0
+        self.base = w * 0.56
+        self.galo = dict(x=w + 4.0, estado="correndo", pulo=-10.0, canta=-10.0, comido=0.0, evolui=None)
+        self.mau = dict(estado="montado", x=0.0, y=0.0, vx=0.0, vy=0.0, cara="rindo", bracos=(2.8, 0.3))
+        self.gen = self.roteiro()
+
+    # --- cenário
+
+    def montar_fundo(self):
+        w, ph, chao = self.w, self.ph, self.chao
+        px = [0] * (w * ph)
+        for y in range(chao):
+            base = misturar(0x4A90D8, 0xBFE0F4, y / chao)
+            for x in range(w):
+                n = math.sin(x * 0.05 + y * 0.4) + math.sin(x * 0.13 - y * 0.2)
+                px[y * w + x] = misturar(base, 0xFFFFFF, 0.7) if y < chao * 0.45 and n > 1.55 else base
+        # a Serra do Curral lá atrás, em duas camadas
+        for camada, (alt, cor, f) in enumerate(((0.36, 0x5A7A8A, 0.021), (0.24, 0x3E6A4A, 0.034))):
+            for x in range(w):
+                topo = chao - ph * alt * (0.6 + 0.25 * math.sin(x * f + camada * 2) + 0.15 * math.sin(x * f * 3.3))
+                for y in range(max(0, int(topo)), chao):
+                    px[y * w + x] = cor
+        for y in range(chao, ph):
+            for x in range(w):
+                px[y * w + x] = 0x3E8A3A if (x // 6 + (y - chao) // 2) % 2 else 0x4A9A44
+        # a placa da estrada
+        pl = int(w * 0.36)
+        txt = "LONDRES"
+        larg = 6 * len(txt) + 3
+        topo = int(chao - ph * 0.3)
+        for y in range(topo, chao):
+            px[y * w + pl] = 0x7A7A80
+        for y in range(topo - 4, topo + 5):
+            for x in range(pl - larg // 2, pl + larg // 2 + 1):
+                if 0 <= x < w:
+                    px[y * w + x] = 0x1E6A3A if topo - 3 <= y <= topo + 3 and abs(x - pl) < larg // 2 else 0xF0F0F0
+        letreiro(px, w, ph, txt, pl + 1, topo + 0.5, 1, 0xFFFFFF)
+        return px
+
+    # --- o galo e o Maumau
+
+    def arte_galo(self):
+        g = self.galo
+        if g["estado"] in ("correndo", "fugindo", "avanca"):
+            return GALO_CORRE[int(self.t * 8) % 2]
+        if self.t - g["canta"] < 1.2:
+            return GALO_ATL_CANTA
+        return GALO_ATL
+
+    def topo_galo(self):
+        g, gs = self.galo, self.gs
+        y = self.chao - len(GALO_ATL) * gs
+        p = self.t - g["pulo"]
+        if p < 0.9:
+            y -= math.sin(p / 0.9 * math.pi) * 22 * self.k
+        elif g["estado"] in ("correndo", "avanca"):
+            y -= abs(math.sin(self.t * 8)) * 1.5 * self.k
+        return y
+
+    def pos_montado(self):
+        """Cintura do Maumau sentado no lombo do galo."""
+        g, gs = self.galo, self.gs
+        return g["x"] + 9.5 * gs, self.topo_galo() + 8 * gs
+
+    def falar(self, txt, quem="mau"):
+        self.falas[quem] = (txt, self.t)
+
+    # --- roteiro
+
+    def roteiro(self):
+        yield from self.entrada()
+        while True:
+            yield from self.ataque()
+            yield from self.assar()
+            yield from self.comer()
+            yield from self.evolucao()
+
+    def correr_ate(self, alvo, vel, estado="correndo"):
+        g = self.galo
+        g["estado"], g["dir"] = estado, 1 if alvo > g["x"] else -1
+        while abs(g["x"] - alvo) > 0.5:
+            g["x"] += max(-vel * self.dt, min(vel * self.dt, alvo - g["x"]))
+            if random.random() < 0.5:
+                self.parts.append([g["x"] + random.uniform(8, 12) * self.gs, self.chao - 1.0, random.uniform(5, 20),
+                                   random.uniform(-10, -3), 0xC8B890, self.t, 0.6, "fumaca"])
+            yield
+        g["estado"], g["dir"] = "parado", -1
+
+    def entrada(self):
+        m = self.mau
+        m.update(estado="montado", cara="rindo", bracos=(2.8, 0.3))
+        yield from self.esperar(0.5)
+        self.falar(random.choice(self.GRITO))
+        yield from self.correr_ate(self.base, self.w * 0.25)
+        self.galo["canta"] = self.t
+        self.falar("CÓCÓRICÓÓÓ!", "galo")
+        yield from self.esperar(1.6)
+
+    def ataque(self):
+        g, m = self.galo, self.mau
+        if self.can["x"] < self.can_alvo:
+            yield from self.trazer_canhao()
+        self.falar(random.choice(self.CLAWD_FALA), "clawd")
+        m["cara"], m["bracos"] = "bravo", (2.8, 2.8)
+        self.falar(random.choice(self.GRITO))
+        yield from self.esperar(1.2)
+        gs = self.gs
+        if random.random() < 0.6:
+            yield from self.atirar(lambda tt: (g["x"] + 5 * gs, self.chao - 0.5), "pula", 1.0)
+            g["pulo"] = self.t + 0.55
+            while self.bala:
+                yield
+            m["cara"], m["bracos"] = "rindo", (2.8, 0.3)
+            self.falar(random.choice(self.PULOU))
+            yield from self.esperar(2.4)
+        yield from self.atirar(lambda tt: (g["x"] + 6 * gs, self.topo_galo() + 8 * gs), "acerta")
+        while self.bala:
+            yield
+        yield from self.esperar(2.0)
+
+    def depenar(self, x, y):
+        g, m, t = self.galo, self.mau, self.t
+        g["estado"] = "depenado"
+        for _ in range(60):
+            self.parts.append([x + random.uniform(-6, 6) * self.gs, y + random.uniform(-4, 4) * self.gs,
+                               random.uniform(-40, 40), random.uniform(-50, 0),
+                               random.choice((0x1E1E1E, 0x1E1E1E, 0xF0F0F0, 0xD8261C)), t, random.uniform(2.0, 3.5),
+                               "pena"])
+        self.onomato.append(("POF!", x, y - 10, t, 0xFFFFFF))
+        mx, my = self.pos_montado()
+        m.update(estado="voando", x=mx, y=my, vx=min(self.w * 0.08, (self.w - 8 * self.k - mx) / 1.4), vy=-self.ph * 0.5, cara="assustado",
+                 bracos=(math.pi / 2, math.pi / 2))
+        self.falar(random.choice(self.CAIU))
+        self.falar("CÓ CÓ CÓ!", "galo")
+        self.placar += 1
+        self.faixa = (f"ARSENAL {self.placar} X 0 GALO", t)
+        self.festa_ate = t + 3.0
+        self.falar(random.choice(self.CLAWD_FESTA), "clawd")
+
+    def assar(self):
+        g = self.galo
+        yield from self.esperar(1.2)
+        yield from self.correr_ate(self.w + 4, self.w * 0.45, "fugindo")
+        yield from self.esperar(1.0)
+        self.falar("Volta aqui, frango!", "clawd")
+        yield from self.correr_ate(self.base, self.w * 0.3, "fugindo")
+        g["estado"] = "fugindo"
+        yield from self.atirar(lambda tt: (g["x"] + 6 * self.gs, self.topo_galo() + 9 * self.gs), "assa", 0.9)
+        while self.bala:
+            yield
+        m = self.mau
+        m["cara"], m["bracos"] = "triste", (0.1, 0.1)
+        self.falar(random.choice(self.ASSOU))
+        yield from self.esperar(3.0)
+
+    def comer(self):
+        g, m = self.galo, self.mau
+        m["cara"], m["bracos"] = "normal", (0.3, 0.3)
+        alvo = g["x"] + len(FRANGO[0]) * self.gs + 3 * self.k
+        while abs(m["x"] - alvo) > 0.5:  # vai até o frango
+            m["x"] += max(-12 * self.k * self.dt, min(12 * self.k * self.dt, alvo - m["x"]))
+            yield
+        self.falar(random.choice(self.COMENDO))
+        m["cara"], m["bracos"] = "mastigando", (2.4, 0.3)
+        ini = self.t
+        while self.t - ini < 4.0:
+            g["comido"] = suave((self.t - ini) / 4.0)
+            m["cara"] = "mastigando" if int(self.t * 6) % 2 else "normal"
+            if int(self.t * 1.4) != int((self.t - self.dt) * 1.4):
+                self.onomato.append(("NHAC!", m["x"] - 4 * self.k, m["y"] - 2.6 * self.Rm, self.t, 0xFFFFFF))
+            yield
+        g["estado"] = None
+        m["cara"], m["bracos"] = "rindo", (0.2, 0.2)
+        l1 = f"{self.NOME} comeu o FRANGO ASSADO!"
+        self.caixa = [l1, "", self.t]
+        yield from self.esperar(2.0)
+        self.caixa = [l1, f"{self.NOME} recuperou 20 HP!", self.t - len(l1) / 30]
+        yield from self.esperar(2.4)
+        self.caixa = None
+
+    def evolucao(self):
+        g, m = self.galo, self.mau
+        g.update(estado="ovo", x=self.base, comido=0.0, oy=-30.0, ovy=0.0)
+        while g["oy"] < 0:  # o ovo cai do céu
+            g["ovy"] += self.g * self.dt
+            g["oy"] = min(0.0, g["oy"] + g["ovy"] * self.dt * 0.3)
+            yield
+        self.onomato.append(("TOC!", g["x"] + 10 * self.gs, self.chao - 12 * self.k, self.t, 0xFFFFFF))
+        m["cara"], m["bracos"] = "assustado", (0.3, 0.3)
+        yield from self.esperar(1.0)
+        self.caixa = ["Ué? O OVO está evoluindo!", "", self.t]
+        g["evolui"] = self.t
+        yield from self.esperar(4.0)
+        g["evolui"] = None
+        g["estado"] = "parado"
+        self.flash = self.t
+        self.caixa = ["Parabéns! O OVO evoluiu", "para GALO DOIDO!", self.t]
+        m["cara"], m["bracos"] = "rindo", (2.8, 2.8)
+        yield from self.esperar(2.6)
+        self.caixa = None
+        # o Maumau sobe de volta no galo
+        mx, my = self.pos_montado()
+        x0, y0, ini = m["x"], m["y"], self.t
+        m["estado"] = "pulando"
+        while self.t - ini < 0.8:
+            q = (self.t - ini) / 0.8
+            m["x"], m["y"] = x0 + (mx - x0) * q, y0 + (my - y0) * q - math.sin(q * math.pi) * 14 * self.k
+            yield
+        m["estado"], m["bracos"] = "montado", (2.8, 0.3)
+        g["canta"] = self.t
+        self.falar("CÓCÓRICÓÓÓ!", "galo")
+        yield from self.esperar(1.6)
+
+    flash = -10.0
+
+    # --- atualização
+
+    def galo_em(self, x, y):
+        g, gs = self.galo, self.gs
+        if g["estado"] in (None, "ovo", "assado"):
+            return False
+        ax, ay = int((x - g["x"]) / gs), int((y - self.topo_galo()) / gs)
+        arte = self.arte_galo()
+        return 0 <= ay < len(arte) and 0 <= ax < len(arte[0]) and arte[ay][ax] != "."
+
+    def colidir(self, b):
+        if b["tipo"] in ("acerta", "assa") and self.galo_em(b["x"], b["y"]):
+            if b["tipo"] == "acerta":
+                self.depenar(b["x"], b["y"])
+            else:
+                g = self.galo
+                g["estado"] = "assado"
+                self.onomato.append(("BUM!", b["x"], b["y"] - 10, self.t, 0xFFE040))
+                for _ in range(40):
+                    self.parts.append([b["x"] + random.uniform(-8, 8) * self.gs, b["y"], random.uniform(-25, 25),
+                                       random.uniform(-40, -5), random.choice((0xFFF2A0, 0xFFB040, 0xFF6020)),
+                                       self.t, random.uniform(0.4, 0.9), "faisca"])
+                self.festa_ate = self.t + 3.0
+                self.falar(random.choice(self.CLAWD_FESTA), "clawd")
+            self.bala = None
+
+    def atualizar(self, dt):
+        self.recuar()
+        self.atualizar_bala(dt)
+        m = self.mau
+        if m["estado"] == "montado":
+            m["x"], m["y"] = self.pos_montado()
+        elif m["estado"] == "voando":
+            m["vy"] += self.g * 0.8 * dt
+            m["x"] += m["vx"] * dt
+            m["y"] += m["vy"] * dt
+            pe = self.chao - 1.78 * self.Rm
+            if m["y"] >= pe and m["vy"] > 0:
+                m["y"], m["estado"] = pe, "chao"
+                self.onomato.append(("TUM!", m["x"], pe - 2 * self.Rm, self.t, 0xFFFFFF))
+                m["cara"], m["bracos"] = "triste", (0.1, 0.1)
+
+    # --- desenho
+
+    def draw(self, t, dt, ch, co):
+        self.t, self.dt = t, dt
+        next(self.gen)
+        self.atualizar(dt)
+        w, h, ph = self.w, self.h, self.ph
+        px = self.px
+        px[:] = self.fundo
+        self.desenhar_galo(px)
+        self.desenhar_canhao(px)
+        self.desenhar_clawd(px)
+        self.desenhar_bala(px)
+        self.desenhar_parts(px, dt)
+        p = t - self.flash
+        if p < 0.3:
+            for i in range(len(px)):
+                px[i] = misturar(px[i], 0xFFFFFF, 0.8 * (1 - p / 0.3))
+        self.desenhar_letreiros(px)
+        pixels_para_celulas(px, w, h, ch, co)
+        for quem, (txt, t0) in list(self.falas.items()):
+            if t - t0 > 3.0:
+                del self.falas[quem]
+                continue
+            if quem == "mau":
+                x, y = self.mau["x"], self.mau["y"] - 2.4 * self.Rm
+            elif quem == "galo":
+                x, y = self.galo["x"] + 2 * self.gs, self.topo_galo() - 1
+            else:
+                x, y = self.clawd_x + 9 * self.sc, self.clawd_y
+            balao(ch, co, w, h, int(x), int(y) // 2 - 1, txt, int((t - t0) * 30))
+        self.desenhar_caixa(ch, co)
+        self.desenhar_plantao(ch, co)
+
+    def desenhar_mau(self, px):
+        m = self.mau
+        br = (round(m["bracos"][0], 1), round(m["bracos"][1], 1))
+        ang = m["vx"] * 0.004 * (self.t * 8 % 6.28) if m["estado"] == "voando" else 0.0
+        pintar_forma(px, self.w, self.ph, self.cache, ("gd", m["cara"], br, round(ang, 1)),
+                     lambda u, v: maumau_em(u, v, m["cara"], br), m["x"], m["y"], self.Rm, round(ang, 1))
+
+    def pintar_arte(self, px, arte, x0, y0, s, cores, ate=None):
+        w, ph = self.w, self.ph
+        for (xx, yy), c in arte_pixels(arte, int(x0), int(y0), s, cores).items():
+            if 0 <= xx < w and 0 <= yy < ph and (ate is None or xx < ate):
+                px[yy * w + xx] = c
+
+    def desenhar_galo(self, px):
+        g, gs, m = self.galo, self.gs, self.mau
+        e = g["estado"]
+        montado = m["estado"] in ("montado", "pulando")
+        if montado:
+            self.desenhar_mau(px)  # as pernas ficam escondidas atrás do galo
+        if e in ("correndo", "parado", "avanca"):
+            self.pintar_arte(px, self.arte_galo(), g["x"], self.topo_galo(), gs, CORES_GALO_ATL)
+        elif e in ("depenado", "fugindo"):
+            arte = GALO_CORRE[int(self.t * 12) % 2] if e == "fugindo" else GALO_ATL
+            if g.get("dir", -1) > 0:  # fugindo pra direita, de costas pro canhão
+                arte = [l[::-1] for l in arte]
+            self.pintar_arte(px, arte, g["x"], self.topo_galo(), gs, CORES_DEPENADO)
+        elif e == "assado":
+            fs = max(1, gs - 1) + 1
+            x0 = g["x"]
+            y0 = self.chao - len(FRANGO) * fs
+            larg = len(FRANGO[0]) * fs
+            self.pintar_arte(px, FRANGO, x0, y0, fs, CORES_FRANGO, ate=int(x0 + larg * (1 - 0.85 * g["comido"])))
+            if random.random() < 0.3 and g["comido"] < 0.8:
+                self.parts.append([x0 + random.uniform(0.2, 0.6) * larg, y0, 0.0, -8.0, 0xE0E0E0, self.t, 1.2, "fumaca"])
+        elif e == "ovo":
+            s = gs
+            y0 = self.chao - len(OVO) * s + g.get("oy", 0)
+            x0 = g["x"] + 7 * gs
+            if g["evolui"] is not None:  # pisca branco, alternando entre o ovo e o galo, cada vez mais rápido
+                p = self.t - g["evolui"]
+                per = max(0.06, 0.5 - p * 0.12)
+                branco = {c: 0xFFFFFF for c in "NnLWKYRwk"}
+                if int(p / per) % 2:
+                    self.pintar_arte(px, GALO_ATL, g["x"], self.chao - len(GALO_ATL) * gs, gs, branco)
+                else:
+                    self.pintar_arte(px, OVO, x0, y0, s, branco)
+            else:
+                balanco = int(math.sin(self.t * 12) * 1.2) if self.t % 2 < 0.6 else 0
+                self.pintar_arte(px, OVO, x0 + balanco, y0, s, CORES_OVO)
+        if not montado:
+            self.desenhar_mau(px)
+
+    def manchetes(self):
+        n = self.placar
+        m = ["Galo parte pra cima do Arsenal montado no próprio mascote",
+             "Ornitólogos confirmam: galo doido não é espécie protegida",
+             "Maumau diz que o frango estava ótimo",
+             "Galo segue sem título em Londres",
+             "Ovo alvinegro cai do céu; especialistas dizem que é normal",
+             "Placa na estrada indica: Londres, 9 mil km. Galo vai a pé"]
+        if n:
+            m.insert(1, f"Galo é depenado pela {n}ª vez")
+        return m
 
 
 class Preto(Cena):
@@ -6483,7 +8262,7 @@ class Extras:
 
 CENAS = [Matrix, Plasma, Tunel, Estrelas, Fogo, Ondas, Vida, Rosca, Hex, Synthwave,
          Pokemon, Clawd, ClawdSoneca, ClawdFesta, ClawdEspaco, Tetris, DVD, Labirinto, Arsenal, Torcida, Canhao,
-         Escanteio, Gago]
+         Escanteio, Gago, BarbaRuiva, CoisaRuim, GaloDoido]
 POR_CIMA = [Matrix, Matrix, Estrelas, Ondas]
 
 

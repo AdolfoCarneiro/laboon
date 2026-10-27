@@ -44,6 +44,9 @@ E, se você quiser (só no KDE), o mesmo rodízio vira um **vídeo de fundo na t
 | `Canhao` | o canhão do Arsenal contra o galo do Tottenham (e o dirigível do City, que sempre aparece) |
 | `Escanteio` | gol de cabeça do Gabriel Magalhães em escanteio do Rice, com câmera estilo Futebol Brasileiro 96 e replay |
 | `Gago` | o Gago, torcedor do United em forma de Snorlax, vira balão sobre Old Trafford até o canhão do Arsenal estourar ele |
+| `BarbaRuiva` | o Maumau, pirata alvinegro com um galinho no ombro, acha o baú da TAÇA (é prata), apanha do Raja ou do Botafogo com 10 e afunda com o canhão do Arsenal |
+| `CoisaRuim` | a torcida do Galo invoca o Coisa Ruim pra pedir uma taça; ele sobe sem textura e só sai medalha de prata, frango e boleto |
+| `GaloDoido` | o Maumau montado num galo gigante vem tirar satisfação; o galo é depenado, vira frango assado e o OVO evolui |
 
 Algumas cenas ainda podem vir **combinadas** (uma por cima da outra) e com paletas de cores sorteadas.
 
@@ -68,6 +71,21 @@ Aqui é Gooner, então cinco cenas são do Arsenal, e City, Tottenham e United s
   Champions de vocês?")… até o Clawd chegar empurrando o canhão. Às vezes a bala quica, às vezes erra, mas no
   fim ele estoura, sai voando com um `PFFFRRRT!` e cai murcho. Aí ele lembra do Ferguson, enche de novo e volta
   pro lugar, com um curativo a mais. Embaixo, o plantão de notícias conta os estragos (e a goteira).
+- **`BarbaRuiva`**: fim de tarde no mar. O Maumau, o Barba Ruiva (ruivo, barbudo, camisa listrada do Galo, chapéu
+  de pirata e um galinho no ombro), chega com o navio alvinegro, acha um baú boiando escrito TAÇA e abre: medalha
+  de prata. Fica vermelho, sai fumaça da orelha. Aí vem o navio do Raja Casablanca (3 X 1) ou a canoa do Botafogo
+  com dez remadores, que leva a medalha (3 X 1). No fim o Clawd, da ilhota com coqueiro, acerta o galinho (vira
+  frango assado) e depois o casco: o navio vai pro fundo e só sobram o chapéu e o frango boiando. Ele faz mais
+  uma dívida e volta com outro navio.
+- **`CoisaRuim`**: meia-noite no estádio vazio. A torcida de capuz alvinegro acende as velas do pentagrama e
+  invoca o Coisa Ruim: um raio, e o Maumau sobe do chão em T-pose, xadrez rosa e preto, bugado, até carregar as
+  texturas (chifre e olho em brasa). Pedem uma taça; ele faz o feitiço e sai medalha de prata, frango assado,
+  camisa do Cruzeiro ou o boleto da dívida, com caixa de texto de Pokémon. Até o Clawd chegar com um balde de
+  água benta: TSSSS, a textura some e ele volta pro buraco.
+- **`GaloDoido`**: o Maumau chega montado num galo alvinegro gigante, perto da placa de LONDRES, querendo saber
+  quem atirou no primo (o galo do `Canhao`). O galo pula a primeira bala, mas a próxima depena ele, e o Maumau
+  voa. O frango pelado foge, volta, e o canhão assa. O Maumau come ("recuperou 20 HP!"), cai um ovo do céu e...
+  o OVO está evoluindo!
 
 | | | |
 |---|---|---|
