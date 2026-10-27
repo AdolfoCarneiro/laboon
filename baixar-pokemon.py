@@ -13,14 +13,14 @@ from PIL import Image
 
 BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-iii/firered-leafgreen/"
 API = "https://pokeapi.co/api/v2/"
-DESTINO = os.path.expanduser("~/.local/share/screensaver-ascii/pokemon.json")
+DESTINO = os.path.expanduser("~/.local/share/laboon/pokemon.json")
 TIPOS = ["normal", "fire", "water", "electric", "grass", "ice", "fighting", "poison", "ground", "flying",
          "psychic", "bug", "rock", "ghost", "dragon", "dark", "steel", "fairy"]
 NOMES_ESPECIAIS = {"nidoran-f": "NIDORAN♀", "nidoran-m": "NIDORAN♂", "mr-mime": "MR. MIME", "farfetchd": "FARFETCH'D"}
 
 
 def baixar(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "screensaver-ascii"}), timeout=30) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "laboon"}), timeout=30) as r:
         return r.read()
 
 

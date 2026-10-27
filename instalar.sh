@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instalador do screensaver-ascii (Fedora, Arch/CachyOS, Omarchy, Debian/Ubuntu; KDE Plasma ou Hyprland).
+# Instalador do laboon (Fedora, Arch/CachyOS, Omarchy, Debian/Ubuntu; KDE Plasma ou Hyprland).
 # Pode rodar quantas vezes quiser: só copia arquivos e (re)liga o gatilho de ociosidade.
 #
 #   ./instalar.sh              instala o screensaver
@@ -12,7 +12,7 @@ set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$HOME/.local/bin"
-DADOS="$HOME/.local/share/screensaver-ascii"
+DADOS="$HOME/.local/share/laboon"
 KONSOLE="$HOME/.local/share/konsole"
 UNIDADES="$HOME/.config/systemd/user"
 HYPR="$HOME/.config/hypr"
@@ -20,9 +20,9 @@ HYPRIDLE="$HYPR/hypridle.conf"
 HYPRLAND="$HYPR/hyprland.conf"
 VIDEO="$DADOS/bloqueio.mp4"
 PLUGIN="luisbocanegra.smart.video.wallpaper.reborn"
-INICIO="# >>> screensaver-ascii"
-FIM="# <<< screensaver-ascii"
-DESLIGADO="# (screensaver-ascii) "
+INICIO="# >>> laboon"
+FIM="# <<< laboon"
+DESLIGADO="# (laboon) "
 
 POKEMON=0
 BLOQUEIO=0
@@ -76,9 +76,9 @@ fi
 OMARCHY=0
 [ -d "$HOME/.local/share/omarchy" ] && OMARCHY=1
 
-# mesmo critério do screensaver-iniciar
+# mesmo critério do laboon-iniciar
 escolher_terminal() {
-  if [ -n "${SCREENSAVER_TERMINAL:-}" ]; then echo "$SCREENSAVER_TERMINAL"; return; fi
+  if [ -n "${LABOON_TERMINAL:-}" ]; then echo "$LABOON_TERMINAL"; return; fi
   if [ "$DESKTOP" = kde ] && tem konsole; then echo konsole; return; fi
   for t in alacritty kitty ghostty foot wezterm konsole; do
     tem "$t" && { echo "$t"; return; }
@@ -141,10 +141,10 @@ fi
 
 if [ "$DESINSTALAR" = 1 ]; then
   echo "Desinstalando…"
-  systemctl --user disable --now screensaver.service screensaver-video.timer 2>/dev/null || true
-  rm -f "$BIN/screensaver-ascii" "$BIN/screensaver-iniciar" "$BIN/screensaver-parar"
-  rm -f "$UNIDADES/screensaver.service" "$UNIDADES/screensaver-video.service" "$UNIDADES/screensaver-video.timer"
-  rm -f "$KONSOLE/Screensaver.profile" "$KONSOLE/ScreensaverMini.profile" "$KONSOLE/ScreensaverPreto.colorscheme"
+  systemctl --user disable --now laboon.service laboon-video.timer 2>/dev/null || true
+  rm -f "$BIN/laboon" "$BIN/laboon-iniciar" "$BIN/laboon-parar"
+  rm -f "$UNIDADES/laboon.service" "$UNIDADES/laboon-video.service" "$UNIDADES/laboon-video.timer"
+  rm -f "$KONSOLE/Laboon.profile" "$KONSOLE/LaboonMini.profile" "$KONSOLE/LaboonPreto.colorscheme"
   systemctl --user daemon-reload 2>/dev/null || true
   ok "programas, perfis do Konsole e serviços removidos"
   limpar_hypr
@@ -171,7 +171,7 @@ else
 fi
 tem "$IDLE" && ok "$IDLE" || { erro "$IDLE não encontrado"; faltam+=("$(pacote "$IDLE")"); }
 fonte_ok=0
-fc-list 2>/dev/null | grep -qi "Hack Nerd Font Mono" && fonte_ok=1
+fc-list 2>/dev/null | grep -i "Hack Nerd Font Mono" >/dev/null && fonte_ok=1
 if [ "$fonte_ok" = 1 ]; then
   ok "Hack Nerd Font Mono"
 else
@@ -204,7 +204,7 @@ tem "$IDLE" || { erro "ainda falta o $IDLE"; falta=1; }
 
 echo "Copiando arquivos…"
 mkdir -p "$BIN" "$DADOS"
-install -m 755 "$AQUI/screensaver-ascii" "$AQUI/screensaver-iniciar" "$AQUI/screensaver-parar" "$BIN/"
+install -m 755 "$AQUI/laboon" "$AQUI/laboon-iniciar" "$AQUI/laboon-parar" "$BIN/"
 install -m 755 "$AQUI/baixar-pokemon.py" "$DADOS/"
 ok "programas em $BIN"
 if tem konsole; then
@@ -215,19 +215,19 @@ fi
 
 if [ "$IDLE" = swayidle ]; then
   mkdir -p "$UNIDADES"
-  install -m 644 "$AQUI/systemd/screensaver.service" "$UNIDADES/"
+  install -m 644 "$AQUI/systemd/laboon.service" "$UNIDADES/"
   systemctl --user daemon-reload
-  systemctl --user enable screensaver.service >/dev/null 2>&1
-  systemctl --user restart screensaver.service
-  ok "screensaver.service ligado (swayidle; entra depois de 2min30 parado)"
+  systemctl --user enable laboon.service >/dev/null 2>&1
+  systemctl --user restart laboon.service
+  ok "laboon.service ligado (swayidle; entra depois de 2min30 parado)"
   if [ "$DESKTOP" = hyprland ]; then
     aviso "no Hyprland o serviço depende do graphical-session.target (ok com uwsm, como no Omarchy)"
   fi
 else
   # hypridle: o screensaver vira um listener no hypridle.conf (e o swayidle fica desligado)
-  if systemctl --user is-enabled screensaver.service >/dev/null 2>&1; then
-    systemctl --user disable --now screensaver.service >/dev/null 2>&1 || true
-    aviso "screensaver.service (swayidle) desligado: quem chama agora é o hypridle"
+  if systemctl --user is-enabled laboon.service >/dev/null 2>&1; then
+    systemctl --user disable --now laboon.service >/dev/null 2>&1 || true
+    aviso "laboon.service (swayidle) desligado: quem chama agora é o hypridle"
   fi
   mkdir -p "$HYPR"
   if [ -f "$HYPRIDLE" ] && grep -qF "$INICIO" "$HYPRIDLE"; then
@@ -238,8 +238,8 @@ else
 $INICIO
 listener {
     timeout = 150
-    on-timeout = $BIN/screensaver-iniciar
-    on-resume = $BIN/screensaver-parar
+    on-timeout = $BIN/laboon-iniciar
+    on-resume = $BIN/laboon-parar
 }
 $FIM
 EOF
@@ -279,9 +279,9 @@ if [ "$DESKTOP" = hyprland ] && [ -f "$HYPRLAND" ]; then
     cat >> "$HYPRLAND" <<EOF
 
 $INICIO
-windowrulev2 = fullscreen, class:^(.*screensaver-ascii)\$
-windowrulev2 = noanim, class:^(.*screensaver-ascii)\$
-windowrulev2 = opacity 1.0 override 1.0 override, class:^(.*screensaver-ascii)\$
+windowrulev2 = fullscreen, class:^(.*laboon)\$
+windowrulev2 = noanim, class:^(.*laboon)\$
+windowrulev2 = opacity 1.0 override 1.0 override, class:^(.*laboon)\$
 $FIM
 EOF
     ok "regras adicionadas em $HYPRLAND (o Hyprland recarrega sozinho)"
@@ -300,7 +300,7 @@ fi
 if [ "$BLOQUEIO" = 1 ]; then
   echo "Configurando o vídeo da tela de bloqueio…"
   pronto=1
-  if ! tem ffmpeg || ! ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264; then
+  if ! tem ffmpeg || ! ffmpeg -hide_banner -encoders 2>/dev/null | grep libx264 >/dev/null; then
     case "$DISTRO" in
       fedora) erro "precisa do ffmpeg com libx264 (o do RPM Fusion: sudo dnf swap ffmpeg-free ffmpeg --allowerasing)" ;;
       *) erro "precisa do ffmpeg com libx264 (pacote: $(pacote ffmpeg))" ;;
@@ -318,12 +318,12 @@ if [ "$BLOQUEIO" = 1 ]; then
   fi
   if [ "$pronto" = 1 ]; then
     mkdir -p "$UNIDADES"
-    install -m 644 "$AQUI/systemd/screensaver-video.service" "$AQUI/systemd/screensaver-video.timer" "$UNIDADES/"
+    install -m 644 "$AQUI/systemd/laboon-video.service" "$AQUI/systemd/laboon-video.timer" "$UNIDADES/"
     systemctl --user daemon-reload
     if [ ! -f "$VIDEO" ]; then
       aviso "gerando um vídeo de 25 min em prioridade mínima (demora, roda em segundo plano)"
-      aviso "  acompanhe com: journalctl --user -fu screensaver-video.service"
-      systemctl --user start --no-block screensaver-video.service
+      aviso "  acompanhe com: journalctl --user -fu laboon-video.service"
+      systemctl --user start --no-block laboon-video.service
     fi
     G=(--file kscreenlockerrc --group Greeter)
     W=("${G[@]}" --group Wallpaper --group "$PLUGIN" --group General)
@@ -334,11 +334,11 @@ if [ "$BLOQUEIO" = 1 ]; then
     kwriteconfig6 "${W[@]}" --key ResumeLastVideo false
     ok "tela de bloqueio aponta pra $VIDEO"
     aviso "o vídeo é refeito sozinho quando o screensaver entra e ele tem mais de 20h"
-    aviso "  (ou ligue o timer diário: systemctl --user enable --now screensaver-video.timer)"
+    aviso "  (ou ligue o timer diário: systemctl --user enable --now laboon-video.timer)"
   fi
 fi
 
 echo
-echo "Pronto! Teste agora com:  ~/.local/bin/screensaver-iniciar   (qualquer tecla fecha)"
-echo "  outro terminal:          SCREENSAVER_TERMINAL=kitty ~/.local/bin/screensaver-iniciar"
+echo "Pronto! Teste agora com:  ~/.local/bin/laboon-iniciar   (qualquer tecla fecha)"
+echo "  outro terminal:          LABOON_TERMINAL=kitty ~/.local/bin/laboon-iniciar"
 [ -f "$DADOS/pokemon.json" ] || echo "Dica: ./instalar.sh --pokemon libera a cena de batalha Pokémon."

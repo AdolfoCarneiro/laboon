@@ -4,7 +4,7 @@ PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/bin/swayidle -w timeout 150 %h/.local/bin/screensaver-iniciar resume %h/.local/bin/screensaver-parar
+ExecStart=/usr/bin/swayidle -w timeout 150 %h/.local/bin/laboon-iniciar resume %h/.local/bin/laboon-parar
 Restart=on-failure
 
 [Install]

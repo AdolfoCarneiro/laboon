@@ -1,12 +1,12 @@
 #!/bin/bash
 # Chamado pelo swayidle/hypridle quando o PC fica ocioso: abre um terminal em tela cheia rodando o screensaver.
 #
-# Terminal: SCREENSAVER_TERMINAL=konsole|alacritty|kitty|ghostty|foot|wezterm força um; senão usa o Konsole
+# Terminal: LABOON_TERMINAL=konsole|alacritty|kitty|ghostty|foot|wezterm força um; senão usa o Konsole
 # no KDE (se tiver) e, fora dele, o primeiro que achar entre alacritty, kitty, ghostty, foot e wezterm.
-# A janela sai com a classe/app-id "screensaver-ascii" (pra regras de janela do Hyprland, por exemplo).
-# SCREENSAVER_FONTE muda o tamanho da fonte (padrão 14, que dá ~174x49 células em 1920x1080).
-# No KDE abre um terminal por monitor (cada um sorteia as próprias cenas); SCREENSAVER_MONITORES=1 volta a ser um só.
-PIDF="${XDG_RUNTIME_DIR:-/tmp}/screensaver.pid"
+# A janela sai com a classe/app-id "laboon" (pra regras de janela do Hyprland, por exemplo).
+# LABOON_FONTE muda o tamanho da fonte (padrão 14, que dá ~174x49 células em 1920x1080).
+# No KDE abre um terminal por monitor (cada um sorteia as próprias cenas); LABOON_MONITORES=1 volta a ser um só.
+PIDF="${XDG_RUNTIME_DIR:-/tmp}/laboon.pid"
 [ -f "$PIDF" ] && kill -0 "$(head -n1 "$PIDF")" 2>/dev/null && exit 0
 # tela já bloqueada (hyprlock/swaylock)? não abre nada por cima
 pidof hyprlock swaylock >/dev/null 2>&1 && exit 0
@@ -14,7 +14,7 @@ pidof hyprlock swaylock >/dev/null 2>&1 && exit 0
 # KDE: alguém pediu pra tela não apagar ("sempre ativo" do Orca, vídeo tocando, "bloquear suspensão e bloqueio de
 # tela" da bandeja)? O swayidle não sabe dessas inibições (elas ficam no PowerDevil), então conferimos aqui.
 # Enquanto durar, não abre o screensaver e cutuca o KDE a cada minuto pra ele também não bloquear a tela sozinho.
-# Se a inibição acabar com você ainda longe, segue e abre o screensaver. O screensaver-parar mata o loop.
+# Se a inibição acabar com você ainda longe, segue e abre o screensaver. O laboon-parar mata o loop.
 inibido() {
   gdbus call --session --dest org.kde.Solid.PowerManagement.PolicyAgent \
     --object-path /org/kde/Solid/PowerManagement/PolicyAgent \
@@ -29,14 +29,14 @@ if command -v gdbus >/dev/null 2>&1 && inibido; then
   done
 fi
 
-PROG="$HOME/.local/bin/screensaver-ascii"
-CLASSE="screensaver-ascii"
-FONTE="${SCREENSAVER_FONTE:-14}"
+PROG="$HOME/.local/bin/laboon"
+CLASSE="laboon"
+FONTE="${LABOON_FONTE:-14}"
 tem() { command -v "$1" >/dev/null 2>&1; }
 
 escolher_terminal() {
-  if [ -n "${SCREENSAVER_TERMINAL:-}" ]; then
-    echo "$SCREENSAVER_TERMINAL"
+  if [ -n "${LABOON_TERMINAL:-}" ]; then
+    echo "$LABOON_TERMINAL"
     return
   fi
   case "${XDG_CURRENT_DESKTOP:-}" in
@@ -60,14 +60,14 @@ TERMINAL="$(escolher_terminal)"
 # limpa as variáveis de outro terminal (se o iniciar foi chamado de dentro de um): cada terminal põe as suas
 LIMPO=(env -u KONSOLE_DBUS_SERVICE -u KONSOLE_DBUS_SESSION -u KONSOLE_DBUS_WINDOW
        -u KITTY_LISTEN_ON -u KITTY_WINDOW_ID -u KITTY_PID -u ALACRITTY_SOCKET -u ALACRITTY_WINDOW_ID
-       -u ALACRITTY_LOG -u WEZTERM_PANE -u WEZTERM_UNIX_SOCKET SCREENSAVER_FONTE="$FONTE")
+       -u ALACRITTY_LOG -u WEZTERM_PANE -u WEZTERM_UNIX_SOCKET LABOON_FONTE="$FONTE")
 
 abrir() {
 case "$TERMINAL" in
   konsole)
-    # a fonte fica no perfil Screensaver (konsole/Screensaver.profile); a da cena de Pokémon no ScreensaverMini
-    "${LIMPO[@]}" SCREENSAVER_PERFIL=Screensaver \
-      konsole --profile Screensaver --fullscreen --hide-menubar --hide-toolbars --hide-tabbar -e "$PROG" &
+    # a fonte fica no perfil Laboon (konsole/Laboon.profile); a da cena de Pokémon no LaboonMini
+    "${LIMPO[@]}" LABOON_PERFIL=Laboon \
+      konsole --profile Laboon --fullscreen --hide-menubar --hide-toolbars --hide-tabbar -e "$PROG" &
     ;;
   alacritty)
     "${LIMPO[@]}" alacritty --class "$CLASSE" \
@@ -80,7 +80,7 @@ case "$TERMINAL" in
   kitty)
     # remote control + socket só desta janela: é por ele que a cena de Pokémon diminui a fonte
     "${LIMPO[@]}" kitty --class "$CLASSE" --start-as=fullscreen \
-      -o allow_remote_control=yes --listen-on "unix:${XDG_RUNTIME_DIR:-/tmp}/screensaver-kitty-$$" \
+      -o allow_remote_control=yes --listen-on "unix:${XDG_RUNTIME_DIR:-/tmp}/laboon-kitty-$$" \
       -o background_opacity=1 -o window_padding_width=0 -o hide_window_decorations=yes \
       -o background=#000000 -o "font_family=$FAMILIA" -o "font_size=$FONTE" \
       -o confirm_os_window_close=0 \
@@ -107,11 +107,11 @@ case "$TERMINAL" in
       start --always-new-process --class "$CLASSE" -- "$PROG" &
     ;;
   "")
-    echo "screensaver-iniciar: nenhum terminal suportado encontrado (konsole, alacritty, kitty, ghostty, foot, wezterm)" >&2
+    echo "laboon-iniciar: nenhum terminal suportado encontrado (konsole, alacritty, kitty, ghostty, foot, wezterm)" >&2
     exit 1
     ;;
   *)
-    echo "screensaver-iniciar: terminal desconhecido em SCREENSAVER_TERMINAL: $TERMINAL" >&2
+    echo "laboon-iniciar: terminal desconhecido em LABOON_TERMINAL: $TERMINAL" >&2
     exit 1
     ;;
 esac
@@ -130,7 +130,7 @@ except Exception:
 
 # KDE: script do KWin que manda a janela de cada PID pro seu monitor, em tela cheia
 espalhar_kde() {
-  local js="${XDG_RUNTIME_DIR:-/tmp}/screensaver-kwin.js" nome="screensaver-ascii-monitores" id
+  local js="${XDG_RUNTIME_DIR:-/tmp}/laboon-kwin.js" nome="laboon-monitores" id
   cat > "$js" <<JS
 const pids = [$(IFS=,; echo "${PIDS[*]}")];
 function arrumar(w) {
@@ -158,7 +158,7 @@ JS
 
 N=1
 case "${XDG_CURRENT_DESKTOP:-}" in
-  *KDE*) tem gdbus && N="${SCREENSAVER_MONITORES:-$(contar_monitores)}" ;;
+  *KDE*) tem gdbus && N="${LABOON_MONITORES:-$(contar_monitores)}" ;;
 esac
 PIDS=()
 for _ in $(seq "$N"); do
@@ -184,11 +184,11 @@ fi
 
 # aproveita que você saiu de perto: se o vídeo da tela de bloqueio tem mais de 20h, ou o papel de parede da ilha
 # mudou depois dele (o vídeo começa e termina nele), gera um novo (prioridade mínima).
-# Só acontece se o vídeo foi configurado (instalar.sh --bloqueio instala o screensaver-video.service).
-if [ -f "$HOME/.config/systemd/user/screensaver-video.service" ]; then
-  VID="$HOME/.local/share/screensaver-ascii/bloqueio.mp4"
-  PAREDE="$HOME/.local/state/lumxx/current/background"
+# Só acontece se o vídeo foi configurado (instalar.sh --bloqueio instala o laboon-video.service).
+if [ -f "$HOME/.config/systemd/user/laboon-video.service" ]; then
+  VID="$HOME/.local/share/laboon/bloqueio.mp4"
+  PAREDE="$HOME/.local/state/denden/current/background"
   if [ ! -f "$VID" ] || [ -n "$(find "$VID" -mmin +1200)" ] || [ -n "$(find "$PAREDE" -newer "$VID" 2>/dev/null)" ]; then
-    systemctl --user start --no-block screensaver-video.service
+    systemctl --user start --no-block laboon-video.service
   fi
 fi

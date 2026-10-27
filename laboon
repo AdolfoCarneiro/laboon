@@ -3,7 +3,7 @@
 
 Roda dentro de um terminal em tela cheia (Konsole, kitty, Alacritty, foot,
 ghostty, wezterm…). Sai com qualquer tecla (ou quando a tela é bloqueada).
-`screensaver-ascii --bench` mede o custo de cada cena e `screensaver-ascii
+`laboon --bench` mede o custo de cada cena e `laboon
 --cena Nome` fixa uma cena só (pra testar).
 """
 import colorsys
@@ -825,13 +825,13 @@ class Synthwave(Cena):
 
 # ------------------------------------------------ Pokémon (sprites de FireRed/LeafGreen, cache local)
 
-POKEDEX_ARQ = os.path.expanduser("~/.local/share/screensaver-ascii/pokemon.json")
+POKEDEX_ARQ = os.path.expanduser("~/.local/share/laboon/pokemon.json")
 _POKEDEX = None
 ALFA36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
 def pokedex():
-    """Sprites e tipos dos 151 (gerado por ~/.local/share/screensaver-ascii/baixar-pokemon.py)."""
+    """Sprites e tipos dos 151 (gerado por ~/.local/share/laboon/baixar-pokemon.py)."""
     global _POKEDEX
     if _POKEDEX is None:
         try:
@@ -1018,7 +1018,7 @@ class Pokemon(Cena):
     """Batalha de Pokémon no estilo FireRed com os sprites oficiais do GBA, na resolução do GBA."""
     combinavel = False
     duracao = (80, 110)
-    perfil = "ScreensaverMini"
+    perfil = "LaboonMini"
     min_px = (240, 160)
     CEU = (0xF8F8E8, 0xE0ECC8)
     PLAT = (0x90B880, 0xB0D498, 0xC4E4AC)
@@ -8406,11 +8406,11 @@ class Terminal:
 
 
 class TermKonsole(Terminal):
-    """Konsole: troca o perfil da sessão via D-Bus (o ScreensaverMini tem fonte 8)."""
+    """Konsole: troca o perfil da sessão via D-Bus (o LaboonMini tem fonte 8)."""
     nome = "konsole"
 
     def __init__(self):
-        self.inicial = os.environ.get("SCREENSAVER_PERFIL") or perfil_konsole() or perfil_padrao_konsole()
+        self.inicial = os.environ.get("LABOON_PERFIL") or perfil_konsole() or perfil_padrao_konsole()
 
     def trocar(self, perfil, esperar=True):
         antes = os.get_terminal_size()
@@ -8423,14 +8423,14 @@ class TermKonsole(Terminal):
 
 class TermFonte(Terminal):
     """Terminais que mudam o tamanho da fonte por comando (kitty, Alacritty). O perfil "normal" é o tamanho
-    original (SCREENSAVER_FONTE, que o screensaver-iniciar passa); qualquer outro perfil é "fonte pequena"."""
+    original (LABOON_FONTE, que o laboon-iniciar passa); qualquer outro perfil é "fonte pequena"."""
     inicial = "normal"
     PADRAO = 11.0   # se ninguém disse qual é o tamanho original
     MENOR = 4.0
 
     def __init__(self):
         try:
-            self.original = float(os.environ.get("SCREENSAVER_FONTE") or self.PADRAO)
+            self.original = float(os.environ.get("LABOON_FONTE") or self.PADRAO)
         except ValueError:
             self.original = self.PADRAO
         self.atual = self.original
@@ -8475,7 +8475,7 @@ class TermFonte(Terminal):
 
 
 class TermKitty(TermFonte):
-    """kitty: `kitty @ set-font-size` (precisa de allow_remote_control; o screensaver-iniciar já liga)."""
+    """kitty: `kitty @ set-font-size` (precisa de allow_remote_control; o laboon-iniciar já liga)."""
     nome = "kitty"
 
     def comando(self, pt):
@@ -8562,7 +8562,7 @@ def bench():
 # ------------------------------------------------ vídeo pra tela de bloqueio (--video)
 
 # perfil -> (colunas, linhas, largura e altura da célula em px, tamanho da fonte em px), medidos no Konsole em 1920x1080
-PERFIS_VIDEO = {"normal": (174, 49, 11, 22, 18), "ScreensaverMini": (273, 83, 7, 13, 11)}
+PERFIS_VIDEO = {"normal": (174, 49, 11, 22, 18), "LaboonMini": (273, 83, 7, 13, 11)}
 def _achar_fonte_video():
     """Hack Nerd Font Mono se estiver instalada; senão a monoespaçada que o fontconfig achar."""
     padrao = os.path.expanduser("~/.local/share/fonts/HackNerdFont/HackNerdFontMono-Regular.ttf")
@@ -8634,7 +8634,7 @@ class Rasterizador:
 
     def parede(self, fps=30):
         """Papel de parede atual (o da ilha; sem ele, o antigo do KDE), cortado pra preencher 1920x1080."""
-        caminho = os.path.realpath(os.path.expanduser("~/.local/state/lumxx/current/background"))
+        caminho = os.path.realpath(os.path.expanduser("~/.local/state/denden/current/background"))
         if not os.path.isfile(caminho):
             try:
                 r = subprocess.run(["kreadconfig6", "--file", "kscreenlockerrc", "--group", "Greeter", "--group", "Wallpaper",
@@ -8853,7 +8853,7 @@ def main():
 
     try:
         tty.setcbreak(fd)
-        saida.write("\x1b]0;screensaver-ascii\x07\x1b[?1049h\x1b[?25l\x1b[2J")
+        saida.write("\x1b]0;laboon\x07\x1b[?1049h\x1b[?25l\x1b[2J")
         saida.flush()
         tam = None
         forcar = sys.argv[sys.argv.index("--cena") + 1] if "--cena" in sys.argv else None

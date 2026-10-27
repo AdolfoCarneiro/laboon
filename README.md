@@ -1,4 +1,6 @@
-# screensaver-ascii
+# laboon
+
+O nome é a Laboon de *One Piece*, a baleia que fica esperando a tripulação voltar, como ele fica esperando você voltar pro PC.
 
 Um protetor de tela de terminal para **Linux no Wayland** (KDE Plasma 6 ou Hyprland) feito em Python puro: quando
 o PC fica parado, um terminal em tela cheia (Konsole, Alacritty, kitty, ghostty, foot ou wezterm) abre e começa um
@@ -124,20 +126,20 @@ faltam e **pergunta antes** de rodar qualquer `sudo`:
 
 | Onde | Como fica |
 |---|---|
-| **Fedora + KDE** | o original: Konsole com os perfis `Screensaver`/`ScreensaverMini`, `swayidle` via systemd, bloqueio do KDE |
+| **Fedora + KDE** | o original: Konsole com os perfis `Laboon`/`LaboonMini`, `swayidle` via systemd, bloqueio do KDE |
 | **CachyOS + KDE** | igual ao Fedora (Konsole + `swayidle`); `sudo pacman -S swayidle ttf-hack-nerd` |
 | **CachyOS + Hyprland** | o terminal que tiver (Alacritty, kitty…), disparado pelo `hypridle` |
 | **Omarchy** | Alacritty (ou Ghostty) + `hypridle`, no lugar do screensaver que vem com o Omarchy (veja abaixo) |
 | Outros | qualquer terminal da lista + `swayidle` (se o compositor tiver *ext-idle-notify*) |
 
-O terminal é escolhido pelo `screensaver-iniciar`: no KDE, o Konsole (se tiver); fora dele, o primeiro que achar
-entre `alacritty`, `kitty`, `ghostty`, `foot` e `wezterm`. Pra forçar um, ponha `SCREENSAVER_TERMINAL=kitty` no
+O terminal é escolhido pelo `laboon-iniciar`: no KDE, o Konsole (se tiver); fora dele, o primeiro que achar
+entre `alacritty`, `kitty`, `ghostty`, `foot` e `wezterm`. Pra forçar um, ponha `LABOON_TERMINAL=kitty` no
 ambiente (ou no comando do hypridle/swayidle). A janela abre em tela cheia, opaca, sem bordas, fundo preto, fonte 14
-(~174x49 células em 1080p; mude com `SCREENSAVER_FONTE=12`) e com a classe/app-id **`screensaver-ascii`** (no
-ghostty é `io.github.screensaver-ascii`, porque lá precisa ser um ID de aplicativo GTK).
+(~174x49 células em 1080p; mude com `LABOON_FONTE=12`) e com a classe/app-id **`laboon`** (no
+ghostty é `io.github.laboon`, porque lá precisa ser um ID de aplicativo GTK).
 
 No KDE abre um terminal **por monitor**, cada um sorteando as próprias cenas (um script temporário do KWin manda
-cada janela pro seu monitor). Pra voltar a ser um só, use `SCREENSAVER_MONITORES=1`.
+cada janela pro seu monitor). Pra voltar a ser um só, use `LABOON_MONITORES=1`.
 
 ### A cena de Pokémon em cada terminal
 
@@ -148,10 +150,10 @@ a cena se o terminal já for grande o bastante; senão ela é pulada.
 
 | Terminal | Pokémon em tela cheia? | Como |
 |---|---|---|
-| Konsole | sim | troca pro perfil `ScreensaverMini` via D-Bus (veja "Access denied" abaixo) |
-| kitty | sim | `kitty @ set-font-size` (o `screensaver-iniciar` abre o kitty com `allow_remote_control` e um socket só dele) |
+| Konsole | sim | troca pro perfil `LaboonMini` via D-Bus (veja "Access denied" abaixo) |
+| kitty | sim | `kitty @ set-font-size` (o `laboon-iniciar` abre o kitty com `allow_remote_control` e um socket só dele) |
 | Alacritty ≥ 0.13 | sim | `alacritty msg config font.size=N` pelo socket de IPC (vem ligado por padrão) |
-| ghostty, foot, wezterm | só se já couber | sem troca de fonte em tempo real; use uma fonte menor (`SCREENSAVER_FONTE=8`) ou uma tela maior (4K) |
+| ghostty, foot, wezterm | só se já couber | sem troca de fonte em tempo real; use uma fonte menor (`LABOON_FONTE=8`) ou uma tela maior (4K) |
 
 No kitty e no Alacritty o tamanho é calculado na hora: ele estima a fonte que dá 240x80, mede e vai descendo meio
 ponto até caber.
@@ -163,13 +165,13 @@ Rodando `./instalar.sh` dentro do Hyprland, o gatilho padrão é o **hypridle** 
 `uwsm`). O instalador pergunta se pode adicionar isto no fim do `~/.config/hypr/hypridle.conf`:
 
 ```ini
-# >>> screensaver-ascii
+# >>> laboon
 listener {
     timeout = 150
-    on-timeout = ~/.local/bin/screensaver-iniciar
-    on-resume = ~/.local/bin/screensaver-parar
+    on-timeout = ~/.local/bin/laboon-iniciar
+    on-resume = ~/.local/bin/laboon-parar
 }
-# <<< screensaver-ascii
+# <<< laboon
 ```
 
 Depois reinicie o hypridle (`killall hypridle; hyprctl dispatch exec hypridle`, ou
@@ -181,13 +183,13 @@ Os terminais já pedem tela cheia sozinhos, mas se quiser garantir (e tirar tran
 também oferece estas regras no `~/.config/hypr/hyprland.conf`:
 
 ```ini
-windowrulev2 = fullscreen, class:^(.*screensaver-ascii)$
-windowrulev2 = noanim, class:^(.*screensaver-ascii)$
-windowrulev2 = opacity 1.0 override 1.0 override, class:^(.*screensaver-ascii)$
+windowrulev2 = fullscreen, class:^(.*laboon)$
+windowrulev2 = noanim, class:^(.*laboon)$
+windowrulev2 = opacity 1.0 override 1.0 override, class:^(.*laboon)$
 ```
 
 (Versões mais novas do Hyprland mudaram a sintaxe de regras de janela; se aparecer erro de config, adapte pra
-sintaxe da sua versão.) O `--desinstalar` tira os blocos marcados com `# >>> screensaver-ascii`.
+sintaxe da sua versão.) O `--desinstalar` tira os blocos marcados com `# >>> laboon`.
 
 ### Omarchy
 
@@ -196,7 +198,7 @@ O Omarchy já vem com um screensaver próprio (o `omarchy-launch-screensaver`, q
 
 1. `./instalar.sh` (de dentro do Hyprland) e responda **s** pra adicionar o listener no `hypridle.conf`.
 2. Quando ele avisar do `omarchy-launch-screensaver`, responda **s** pra comentar aquele listener (as linhas ganham
-   o prefixo `# (screensaver-ascii) ` e o `--desinstalar` desfaz). Ou faça na mão: em `~/.config/hypr/hypridle.conf`
+   o prefixo `# (laboon) ` e o `--desinstalar` desfaz). Ou faça na mão: em `~/.config/hypr/hypridle.conf`
    comente o bloco `listener { … on-timeout = pidof hyprlock || omarchy-launch-screensaver }`.
 3. Reinicie o hypridle. O Alacritty do Omarchy já tem o socket de IPC, então a cena de Pokémon troca a fonte sozinha.
 
@@ -206,8 +208,8 @@ instalador de novo.
 ## Instalação
 
 ```bash
-git clone https://github.com/AdolfoCarneiro/screensaver-ascii.git
-cd screensaver-ascii
+git clone https://github.com/AdolfoCarneiro/laboon.git
+cd laboon
 ./instalar.sh               # o básico
 ./instalar.sh --pokemon     # + baixa os sprites da cena de Pokémon
 ./instalar.sh --bloqueio    # + vídeo na tela de bloqueio
@@ -217,12 +219,12 @@ O instalador pode rodar quantas vezes quiser. Ele copia:
 
 | Arquivo | Para |
 |---|---|
-| `screensaver-ascii`, `screensaver-iniciar`, `screensaver-parar` | `~/.local/bin/` |
-| `baixar-pokemon.py` | `~/.local/share/screensaver-ascii/` |
-| `konsole/*` (perfis `Screensaver`, `ScreensaverMini` e o esquema de cores preto), só se tiver Konsole | `~/.local/share/konsole/` |
-| `systemd/screensaver.service` (e, com `--bloqueio`, `screensaver-video.*`) | `~/.config/systemd/user/` |
+| `laboon`, `laboon-iniciar`, `laboon-parar` | `~/.local/bin/` |
+| `baixar-pokemon.py` | `~/.local/share/laboon/` |
+| `konsole/*` (perfis `Laboon`, `LaboonMini` e o esquema de cores preto), só se tiver Konsole | `~/.local/share/konsole/` |
+| `systemd/laboon.service` (e, com `--bloqueio`, `laboon-video.*`) | `~/.config/systemd/user/` |
 
-e liga o `screensaver.service` (swayidle) ou, no Hyprland, adiciona o listener no `hypridle.conf` (perguntando antes).
+e liga o `laboon.service` (swayidle) ou, no Hyprland, adiciona o listener no `hypridle.conf` (perguntando antes).
 `--hypridle` / `--swayidle` forçam um ou outro.
 
 ## Uso
@@ -230,8 +232,8 @@ e liga o `screensaver.service` (swayidle) ou, no Hyprland, adiciona o listener n
 Depois de instalado não precisa fazer nada: é só largar o PC. Para testar na hora (qualquer tecla fecha):
 
 ```bash
-~/.local/bin/screensaver-iniciar                          # o terminal que ele escolher
-SCREENSAVER_TERMINAL=kitty ~/.local/bin/screensaver-iniciar   # um terminal específico
+~/.local/bin/laboon-iniciar                          # o terminal que ele escolher
+LABOON_TERMINAL=kitty ~/.local/bin/laboon-iniciar   # um terminal específico
 ```
 
 Opções úteis (rodando dentro de um terminal qualquer):
@@ -246,31 +248,31 @@ Opções úteis (rodando dentro de um terminal qualquer):
 | `SS_OVOS=1` | modo demo dos easter eggs |
 | `SS_DEBUG=1` | mostra no stderr por que ele saiu |
 
-Exemplo: `SS_DURACAO=6 screensaver-ascii --cena Clawd`.
+Exemplo: `SS_DURACAO=6 laboon --cena Clawd`.
 
 ## Como funciona
 
-- O `screensaver.service` roda `swayidle -w timeout 150 screensaver-iniciar resume screensaver-parar` (no
+- O `laboon.service` roda `swayidle -w timeout 150 laboon-iniciar resume laboon-parar` (no
   Hyprland, o listener do hypridle faz o mesmo). Ou seja: **2min30** parado, abre o terminal em tela cheia (no
-  Konsole, com o perfil `Screensaver`); mexeu, fecha. O PID fica em `$XDG_RUNTIME_DIR/screensaver.pid`.
+  Konsole, com o perfil `Laboon`); mexeu, fecha. O PID fica em `$XDG_RUNTIME_DIR/laboon.pid`.
 - O **bloqueio de tela continua sendo do KDE** (ou do `hyprlock` no Hyprland), no tempo que estiver em *Configurações › Tela de bloqueio*
   (deixe maior que 2min30, senão bloqueia antes do screensaver aparecer). Quando a tela bloqueia, o screensaver
   percebe (via `org.freedesktop.ScreenSaver` no KDE, ou vendo um processo `hyprlock`/`swaylock`) e sai sozinho.
 - **Inibições valem**: se algum app pediu pra tela não apagar (o "sempre ativo" do Orca, um vídeo tocando, o
   "bloquear suspensão e bloqueio de tela" da bandeja do KDE), o screensaver não abre e o KDE também não bloqueia
-  a tela sozinho: no KDE o `screensaver-iniciar` consulta o PowerDevil e, enquanto a inibição durar, avisa o KDE a
+  a tela sozinho: no KDE o `laboon-iniciar` consulta o PowerDevil e, enquanto a inibição durar, avisa o KDE a
   cada minuto que tem gente usando (`SimulateUserActivity`). No Hyprland, o hypridle já respeita inibições sozinho.
 - Os tempos de desligar a tela/suspender ficam em *Configurações › Energia*; ajuste do seu jeito.
 - Com `--bloqueio` (só KDE), a tela de bloqueio usa o plugin Smart Video Wallpaper Reborn tocando
-  `~/.local/share/screensaver-ascii/bloqueio.mp4` em loop. O instalador grava isso no `~/.config/kscreenlockerrc`
+  `~/.local/share/laboon/bloqueio.mp4` em loop. O instalador grava isso no `~/.config/kscreenlockerrc`
   com `kwriteconfig6`. Sempre que o screensaver entra e o vídeo tem mais de 20h, um vídeo novo é gerado em
-  prioridade mínima (`screensaver-video.service`). Também dá para usar o timer diário:
-  `systemctl --user enable --now screensaver-video.timer`.
+  prioridade mínima (`laboon-video.service`). Também dá para usar o timer diário:
+  `systemctl --user enable --now laboon-video.timer`.
 
 ### "Access denied" do Konsole (é normal)
 
 A cena de Pokémon roda na resolução do GBA, então durante ela o screensaver troca a fonte do Konsole para o perfil
-`ScreensaverMini` via D-Bus (`org.kde.konsole.Session.setProfile`). O Konsole responde **`AccessDenied`** (essa API
+`LaboonMini` via D-Bus (`org.kde.konsole.Session.setProfile`). O Konsole responde **`AccessDenied`** (essa API
 fica marcada como "sensível" e desligada), **mas aplica a troca mesmo assim**. O programa confirma pela mudança de
 tamanho do terminal e ignora o erro. Se a troca não acontecer, a cena é pulada.
 
@@ -278,19 +280,19 @@ tamanho do terminal e ignora o erro. Se a troca não acontecer, a cena é pulada
 
 Nenhum sprite vem neste repositório. O `baixar-pokemon.py` (rodado por `./instalar.sh --pokemon`) baixa os sprites
 de FireRed/LeafGreen dos 151 de Kanto da [PokeAPI](https://pokeapi.co/) **na sua máquina** e monta o cache
-`~/.local/share/screensaver-ascii/pokemon.json`. Sem esse arquivo, a cena simplesmente não entra no rodízio.
+`~/.local/share/laboon/pokemon.json`. Sem esse arquivo, a cena simplesmente não entra no rodízio.
 
 ## Desinstalar
 
 ```bash
 ./instalar.sh --desinstalar
-rm -rf ~/.local/share/screensaver-ascii   # sprites e vídeo, se quiser
+rm -rf ~/.local/share/laboon   # sprites e vídeo, se quiser
 ```
 
 Se usou `--bloqueio`, escolha outro fundo em *Configurações › Tela de bloqueio*.
 
-Na mão: `systemctl --user disable --now screensaver.service screensaver-video.timer`, apague os arquivos da tabela
-de instalação e tire os blocos `# >>> screensaver-ascii` do `hypridle.conf`/`hyprland.conf`.
+Na mão: `systemctl --user disable --now laboon.service laboon-video.timer`, apague os arquivos da tabela
+de instalação e tire os blocos `# >>> laboon` do `hypridle.conf`/`hyprland.conf`.
 
 ## Aviso
 
@@ -304,7 +306,7 @@ material de terceiros que o script baixa.
 
 ## English
 
-**screensaver-ascii** is a terminal screensaver for Wayland (KDE Plasma 6 or Hyprland), in pure Python. After 2.5
+**laboon** is a terminal screensaver for Wayland (KDE Plasma 6 or Hyprland), in pure Python. After 2.5
 minutes idle, `swayidle` (or `hypridle`) opens a fullscreen terminal that cycles through 22 animated ASCII/half-block scenes (Matrix,
 plasma, tunnel, starfield, fire, ripples, Game of Life, spinning donut, hacker hex, synthwave, a FireRed-style
 Pokémon battle, four Claude Code mascot scenes, self-playing Tetris, bouncing DVD logo, raycaster maze, and four
@@ -318,13 +320,13 @@ Install: `./instalar.sh` (`--pokemon` downloads sprites from PokeAPI on your own
 KDE-only lock-screen video; `--hypridle`/`--swayidle` pick the idle trigger; `--desinstalar` removes it). The
 installer detects pacman/dnf/apt and offers the right package names (it always asks before running `sudo`).
 Requires `python3`, `swayidle` or `hypridle`, and one of Konsole, Alacritty, kitty, ghostty, foot or wezterm
-(`SCREENSAVER_TERMINAL=…` forces one; the window class/app-id is `screensaver-ascii`). On KDE it opens one
-terminal per monitor, each picking its own scenes (`SCREENSAVER_MONITORES=1` for a single one). Hack Nerd Font Mono is
+(`LABOON_TERMINAL=…` forces one; the window class/app-id is `laboon`). On KDE it opens one
+terminal per monitor, each picking its own scenes (`LABOON_MONITORES=1` for a single one). Hack Nerd Font Mono is
 recommended. Code and comments are in Portuguese.
 
 **Distros:** Fedora + KDE is the tested setup. CachyOS with KDE works the same way (Konsole + swayidle). On Hyprland
-(CachyOS or **Omarchy**) the installer appends a `listener { timeout = 150; on-timeout = ~/.local/bin/screensaver-iniciar;
-on-resume = ~/.local/bin/screensaver-parar }` block to `~/.config/hypr/hypridle.conf`, and on Omarchy it offers to
+(CachyOS or **Omarchy**) the installer appends a `listener { timeout = 150; on-timeout = ~/.local/bin/laboon-iniciar;
+on-resume = ~/.local/bin/laboon-parar }` block to `~/.config/hypr/hypridle.conf`, and on Omarchy it offers to
 comment out the built-in `omarchy-launch-screensaver` listener so both don't start at once. It exits when
 `hyprlock`/`swaylock` is running.
 
